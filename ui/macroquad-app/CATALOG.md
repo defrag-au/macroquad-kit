@@ -11,7 +11,7 @@ brings what `macroquad-widgets` deliberately refuses — routes, a real text fie
 the phone's keyboard, a long clipped grid and a page that scrolls. Stories are in
 `macroquad-storybook` under "app shell". MACROQUAD only: no wasm-bindgen.
 
-14 modules.
+15 modules.
 
 | module | what it is |
 |---|---|
@@ -28,4 +28,5 @@ the phone's keyboard, a long clipped grid and a page that scrolls. Stories are i
 | `load` | `Fetch` and `Load` — a request whose reply is read into the type a screen wants, and that request's whole life as a screen needs to know it: not asked yet, on its way, here, or failed with a reason to show |
 | `nav` | `bottom_nav` and `nav_rail` — the app's top-level destinations, always in reach: a bar along the bottom on a phone, a rail down the left on anything wider |
 | `page` | `Page` — a screen that scrolls as a whole and is laid out top to bottom: an asset's detail, a settings list, a market summary |
+| `text_area` | `TextArea` — a multi-line field that grows with what it holds and scrolls inside once it reaches a cap, with the phone's own keyboard |
 | `toast` | `Toasts` — short messages about what just happened, stacked above the navigation, each leaving on its own |

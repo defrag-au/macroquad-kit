@@ -125,8 +125,9 @@ pub enum PageScript {
     /// Fullscreen on a phone's or tablet's first tap, where the browser
     /// allows it (`js/fullscreen.js` says where it does not).
     Fullscreen,
-    /// `macroquad-app`'s page half: the real `<input>` over a text field, the
-    /// safe-area insets and the history the router reads (`js/app-shell.js`).
+    /// `macroquad-app`'s page half: the real `<input>` or `<textarea>` over a
+    /// text field, the safe-area insets and the history the router reads
+    /// (`js/app-shell.js`).
     AppShell,
 }
 
@@ -214,7 +215,7 @@ mod tests {
     fn the_app_shell_page_script_is_the_plugin_the_crate_expects() {
         let js = PageScript::AppShell.js();
         assert!(js.contains("name: 'app_shell'"));
-        assert!(js.contains("version: 2,"));
+        assert!(js.contains("version: 3,"));
     }
 
     #[test]

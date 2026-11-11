@@ -83,6 +83,12 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
   one gl.js.
 - A wasm that is not where `--wasm` says after the build.
 
+A refusal is not a rollback. The `[patch]` and build checks run before the
+clear; a refusal after it — a crate that does not link miniquad, a duplicate
+plugin, a missing import — leaves `--dest` without what a good run put there, or
+part-way through the new bundle. A missing import is refused after `index.html`
+is written, so the page looks finished. Read the exit status, not the directory.
+
 ## Output
 
 ```
@@ -100,11 +106,12 @@ scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
 - **`--allow-undefined` is required.** It is appended to the build, not left to
   the caller, because a build without it fails at link time in a way that reads
   like a missing page script.
-- **A renamed page script is not deleted for you.** `--web` is staged whole, so
-  a generated directory that still holds a script's old name is copied beside
-  the new one and the page loads both — and the bundle cannot see it, because
-  both copies provide the imports. A client's `build.rs` removal only runs when
-  cargo re-runs that script (a kit rev bump does; a build with nothing changed
-  does not), so delete the superseded file by hand when it is there:
-  `macroquad-wallet-link/build.rs` is the worked example for `app.js` →
+- **A renamed page script is refused, not deleted for you.** `--web` is staged
+  whole, so a generated directory that still holds a script's old name would
+  load both. Two scripts registering the same miniquad plugin is a refusal
+  naming both files; a script that registers nothing (a comment, say) is still
+  staged. A client's `build.rs` removal only runs when cargo re-runs that script
+  (a kit rev bump does; a build with nothing changed does not), so when the
+  refusal names a superseded file, delete it or touch `build.rs` and bundle
+  again: `macroquad-wallet-link/build.rs` is the worked example for `app.js` →
   `gamekit-app-shell.js`.

@@ -51,11 +51,6 @@ use std::process::Command;
 
 const CATEGORIES: &[&str] = &["atoms", "input", "gamekit", "page", "app-shell", "admin"];
 
-/// Stories that exist to show a cut: the app bar's over-long title and the card
-/// face's shrinking name plate. `cut` is the only problem they may report, and
-/// any other problem in either still fails.
-const EXPECTED_CUTS: &[&str] = &["app-shell/app-bar", "gamekit/card-face"];
-
 fn storybook() -> &'static str {
     env!("CARGO_BIN_EXE_macroquad-storybook")
 }
@@ -202,9 +197,6 @@ fn every_selected_story_has_no_text_problems() {
         ]);
         if let Some(at) = at {
             command.arg("--at").arg(at.to_string());
-        }
-        if EXPECTED_CUTS.contains(&slug.as_str()) {
-            command.args(["--allow", "cut"]);
         }
         let out = command
             .output()

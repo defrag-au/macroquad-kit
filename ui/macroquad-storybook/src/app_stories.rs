@@ -10,8 +10,8 @@
 use macroquad::prelude::*;
 use macroquad_app::{
     AppBar, ArtGrid, BarAction, Chip, FIELD_H, FieldKind, Glyph, GridSpec, Insets, Keyboard,
-    Leading, List, ListSpec, NavItem, NavPlace, Page, TextField, Toasts, Tone, bottom_nav,
-    chip_row, nav_rail, shell_layout,
+    Leading, List, ListSpec, NavItem, NavPlace, Page, TextArea, TextAreaSpec, TextField, Toasts,
+    Tone, bottom_nav, chip_row, nav_rail, shell_layout,
 };
 use macroquad_gamekit::clip::with_clip;
 use macroquad_widgets::{
@@ -45,6 +45,12 @@ pub enum AppView {
     /// A scrolling form: three fields, an error under one, settings rows, and
     /// the field being edited scrolled under the app bar.
     Form,
+    /// A note being written on a phone: a multi-line field, grown to its cap
+    /// and scrolled inside, with the keyboard up.
+    Notes,
+    /// The same note at a desk's width, where the line is long and the room is
+    /// not the constraint.
+    NotesDesk,
 }
 
 /// The settings rows under the form: a label left, a value right, a rule.
@@ -57,6 +63,24 @@ const SETTINGS: [(&str, &str); 6] = [
     ("Weekly summary", "Off"),
 ];
 
+/// The note the text-area story edits: long enough to wrap, to cross a hard
+/// newline and to outgrow the area's cap, so the capture shows the wrap, the
+/// area's own scroll and the caret at the end.
+const NOTE: &str = "\
+The tide came in over the flats at four this afternoon, and the whole harbour \
+turned the colour of pewter. We walked out to the point and back before the \
+light went, and the wind dropped just as we turned for home.\n\
+\n\
+Things to do before Friday:\n\
+- ring the yard about the mooring\n\
+- collect the parcel from the post office\n\
+- book the ferry for the fourteenth\n\
+- measure the dinghy for a new cover\n\
+\n\
+The old cover has gone at the seams along the boom, so measure it properly this \
+time and ask about the sail repair while you are there. The yard said they can \
+take it any morning before ten.";
+
 pub struct AppStory {
     view: AppView,
     keyboard: Keyboard,
@@ -65,6 +89,7 @@ pub struct AppStory {
     name: TextField,
     handle: TextField,
     city: TextField,
+    body: TextArea,
     page: Page,
     frames: u32,
     chips: [bool; 6],
@@ -91,6 +116,15 @@ impl AppStory {
             keyboard.focus(2);
             keyboard.input_font("Noto Sans", "assets/NotoSans-Bold.ttf");
         }
+        let mut body = TextArea::new(4);
+        if matches!(view, AppView::Notes | AppView::NotesDesk) {
+            // A note mid-sentence: the caret at the end, and the field is what
+            // the keyboard is up for on the phone.
+            name.set(&keyboard, "Harbour notes");
+            body.set(&keyboard, NOTE);
+            keyboard.focus(4);
+            keyboard.input_font("Noto Sans", "assets/NotoSans-Bold.ttf");
+        }
         let mut toasts = Toasts::new();
         if view == AppView::Toasts {
             toasts.push("Copied the policy id", Tone::Success);
@@ -107,6 +141,7 @@ impl AppStory {
             name,
             handle,
             city,
+            body,
             page: Page::new(),
             frames: 0,
             chips: [true, false, false, true, false, false],
@@ -131,6 +166,8 @@ impl AppStory {
             AppView::ShellPhone => vec2(PHONE_W, 844.0),
             AppView::ShellDesk => vec2(1280.0, 800.0),
             AppView::Form => vec2(PHONE_W, 844.0),
+            AppView::Notes => vec2(PHONE_W, 844.0),
+            AppView::NotesDesk => vec2(1280.0, 800.0),
         }
     }
 
@@ -312,6 +349,109 @@ impl AppStory {
             .show(p, shift(layout.bar), shift(layout.bar_row));
     }
 
+    /// A note on a `Page`: a title, a multi-line body that outgrows its cap and
+    /// scrolls inside, and the caret kept above the keyboard. The desk variant
+    /// is the same screen at a reading column's width, with the rail.
+    fn notes(&mut self, p: &Painter, area: Rect, gesture: &Gesture, dt: f32) {
+        let desk = self.view == AppView::NotesDesk;
+        let insets = if desk {
+            Insets::default()
+        } else {
+            Insets {
+                top: 47.0,
+                bottom: 34.0,
+                keyboard: 300.0,
+                ..Insets::default()
+            }
+        };
+        let layout = shell_layout(vec2(area.w, area.h), insets, true);
+        let shift = |r: Rect| Rect::new(r.x + area.x, r.y + area.y, r.w, r.h);
+        let c = p.theme.color;
+        let body = shift(layout.body);
+        let column = body.w.min(720.0);
+        let (lx, w) = if desk {
+            (body.x + (body.w - column) * 0.5, column)
+        } else {
+            (body.x + 16.0, body.w - 32.0)
+        };
+
+        self.keyboard.begin_at(1.0, Vec2::ZERO);
+        self.keyboard.clip(body);
+        let input = ScrollInput::read(gesture.drag, Vec2::from(mouse_position()));
+        let (top, _) = self.page.begin(body, &input, None, dt);
+        let mut y = top + 4.0;
+        let mut caret = None;
+
+        with_clip(body, || {
+            p.text_in(
+                "Notebook · draft",
+                Rect::new(lx, y, w, 14.0),
+                p.size(TextSize::Xs),
+                c.text_muted,
+                Align::Start,
+            );
+            y += 22.0;
+            self.name.show(
+                p,
+                &mut self.keyboard,
+                Rect::new(lx, y, w, FIELD_H),
+                FieldKind::Text,
+                "Title",
+            );
+            y += FIELD_H + 16.0;
+            p.text_in(
+                "Note",
+                Rect::new(lx, y, w, 18.0),
+                p.size(TextSize::Sm),
+                c.text_muted,
+                Align::Start,
+            );
+            y += 24.0;
+            let reply = self.body.show(
+                p,
+                &mut self.keyboard,
+                Rect::new(lx, y, w, 0.0),
+                TextAreaSpec::new(FieldKind::Text, "Write a note…").max_len(2_000),
+                &input,
+                dt,
+            );
+            y += self.body.height() + 16.0;
+            if reply.editing {
+                caret = Some(self.body.caret_rect());
+            }
+        });
+
+        self.page.end(top, y);
+        // The caret was drawn at this frame's offset; the next `begin` moves
+        // the page so it sits above the keyboard.
+        if let Some(caret) = caret {
+            self.page.reveal(body, caret, 0.0);
+        }
+        self.keyboard.end();
+
+        let _ = AppBar::new("Notes")
+            .subtitle("Draft · saved")
+            .leading(Leading::Back)
+            .raised((self.page.offset() / 24.0).min(1.0))
+            .show(p, shift(layout.bar), shift(layout.bar_row));
+
+        let items = [
+            NavItem::new(Glyph::Home, "Home"),
+            NavItem::new(Glyph::Grid, "Notes"),
+            NavItem::new(Glyph::Search, "Search"),
+            NavItem::new(Glyph::Person, "Profile"),
+        ];
+        match layout.nav {
+            Some(NavPlace::Bottom { band, row }) => {
+                let _ = bottom_nav(p, shift(band), shift(row), &items, 1);
+            }
+            Some(NavPlace::Rail(rail)) => {
+                let _ = nav_rail(p, shift(rail), &items, 1);
+            }
+            None => {}
+        }
+    }
+
     pub fn draw(&mut self, p: &Painter, area: Rect, gesture: &Gesture, dt: f32) {
         let c = p.theme.color;
         let phone = Rect::new(area.x, area.y, PHONE_W.min(area.w), area.h.min(760.0));
@@ -321,6 +461,7 @@ impl AppStory {
         };
         match self.view {
             AppView::Form => self.form(p, area, gesture, dt),
+            AppView::Notes | AppView::NotesDesk => self.notes(p, area, gesture, dt),
             AppView::ShellPhone | AppView::ShellDesk => self.shell(p, area, gesture, dt),
             AppView::Bar => {
                 let mut y = area.y;

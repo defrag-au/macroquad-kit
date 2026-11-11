@@ -70,6 +70,12 @@ The package must hold the app in a **library** target. `macroquad-apk` runs
   error — and the example carries that line.
 - `web/` — the page scripts `build.rs` stamps, for the web build.
 
+The kit does not ask Android for the soft keyboard today — miniquad's
+`show_keyboard` is never called — and the example manifest sets no
+`android:windowSoftInputMode`, so a `TextField` on a device is untested. The
+keyboard band a layout reserves comes from `Insets`, which reads the page on the
+web and `--insets` in a capture; nothing reports it on Android yet.
+
 `--library` is the library name (`field_guide`) and `--crate` the package
 (`field-guide`); they are not the same string.
 
@@ -114,6 +120,11 @@ says otherwise.
 
 Signing and verification are the last two steps, in that order, and the
 verification's exit status is the build's.
+
+A `--dry-run` only resolves — it starts no build step — so it cannot check
+that both Rust Android targets are installed. A real build fails at the first
+`cargo rustc --target <abi>`, naming the target that is missing; the devshell
+below brings both.
 
 ## The SDK
 

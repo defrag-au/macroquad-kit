@@ -4,7 +4,7 @@
 //! hit-test). Deliberately tiny — a widget toolkit, not a UI framework.
 
 use macroquad::prelude::*;
-use macroquad_text::{Align, TextStyle, draw_run, measure_run};
+use macroquad_text::{Align, TextStyle, draw_run, measure_run, report};
 use ui_theme::{TextRole, TextSize};
 
 use crate::theme::{self, Theme};
@@ -194,6 +194,8 @@ impl<'a> Painter<'a> {
             out.push(ch);
         }
         out.push('…');
+        // A cut the kit made, not a symptom a report should flag.
+        report::fitted(&out);
         out
     }
 

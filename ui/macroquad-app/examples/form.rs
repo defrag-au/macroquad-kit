@@ -5,10 +5,18 @@
 //! ```sh
 //! cargo run -p macroquad-app --example form
 //! cargo run -p macroquad-app --example form -- --shot .tmp/form.png --size 390x844
-//! # a focused field with the keyboard band, and an invalid handle:
-//! cargo run -p macroquad-app --example form -- --shot .tmp/form-focus.png \
-//!     --size 390x844 --insets 47,0,34,0,300 --plan .tmp/form-plan.txt
+//! # a focused field with the keyboard band, and an invalid handle.
+//! # .tmp/form-plan.txt:
+//! #   [focus]
+//! #   set focus handle
+//! #   set handle ada
+//! #   shot 10 .tmp/form-focus.png
+//! cargo run -p macroquad-app --example form -- --plan .tmp/form-plan.txt \
+//!     --size 390x844 --insets 47,0,34,0,300 --fail-on-problems
 //! ```
+//!
+//! `--shot` and `--plan` together give the shot and never run the plan's `set`
+//! lines; use one or the other.
 //!
 //! A plan reaches a state through `Game::setup`, one `set` line at a time:
 //! `focus name|handle|city` (a focused field, with its caret), and

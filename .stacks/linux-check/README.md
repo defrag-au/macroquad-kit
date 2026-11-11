@@ -61,6 +61,10 @@ than the arm64 container. Run it in check mode before a bless — the existing
 set should be byte-identical — and check `git status` afterwards, so a new
 story is the only thing the diff shows.
 
+The headless capture loads EGL only (`libEGL_mesa`, `libgallium`, `libgbm`), so
+`libegl1` is the package that matters; the GLX packages are installed for
+completeness, and `LIBGL_ALWAYS_SOFTWARE` changes nothing without a GPU.
+
 An attached `run` can print `failed to send signal … signal 28` (SIGWINCH) as
 the terminal resizes. It is harmless: the test summary is the end of the output,
 and a bless has written the files by then. For a detached run, `up -d` is

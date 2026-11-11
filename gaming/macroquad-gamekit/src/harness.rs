@@ -65,7 +65,9 @@
 //! text is a second check. It lists every line of text drawn, on the screen
 //! and inside each baked face, with its box and size, and leads with the
 //! problems that are easy to miss by eye: text off its surface, cut short with
-//! an ellipsis, smaller than legible, or on top of other text.
+//! an ellipsis a host wrote, smaller than legible, or on top of other text. A
+//! string the kit cut to fit is marked as deliberate, so its own ellipsis is not
+//! a problem.
 //!
 //! ## A golden turns a capture into a test
 //!
@@ -327,8 +329,9 @@ pub struct Args {
     /// problem.
     pub fail_on_problems: bool,
     /// `--allow off,cut,small,overlap`: problem kinds `--fail-on-problems`
-    /// ignores. A screen that exists to show a cut passes `cut` and still
-    /// fails on everything else.
+    /// ignores. A screen that exists to show a literal cut passes `cut` and
+    /// still fails on everything else; a cut the kit made (`Painter::fit`,
+    /// `shrink_to_fit`) is not a problem and needs no allowance.
     pub allow: Vec<report::ProblemKind>,
     /// `--keys "10:Up,20-40:Right"`: keys the loop presses for the game, by
     /// frame, merged into [`Frame::input`](crate::Frame::input) so the game
@@ -1919,6 +1922,7 @@ mod tests {
             rect: Rect::new(x, y, w, size),
             size,
             alpha: 1.0,
+            cut: false,
         }
     }
 

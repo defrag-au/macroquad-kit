@@ -26,7 +26,8 @@ fn main() {
     // carry both copies and the page would load the page script twice. This
     // runs only when cargo re-runs the script — a gamekit rev bump does, a
     // build with nothing changed does not — so an `app.js` that appears later
-    // still needs deleting by hand; `mq-bundle` cannot tell the copies apart.
+    // still needs deleting by hand. `mq-bundle` refuses the pair rather than
+    // shipping it; this removal makes the next run pass.
     match fs::remove_file(web.join("app.js")) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

@@ -42,8 +42,9 @@ In a browser, `?story=<words>` selects a story instead of `--story`.
 
 There is no `--size`. A capture is the story's own canvas, declared by
 `Story::canvas`, because a golden must not move when the storybook window does.
-A story that is meant to show a cut (`app-shell/app-bar`, `gamekit/card-face`)
-passes `--allow cut` in its test and still fails on everything else.
+A string the kit cut to fit (`Painter::fit`, `shrink_to_fit`) is marked as a
+deliberate cut, so `--allow cut` is only for text a host wrote an ellipsis into
+itself.
 
 ## Goldens
 
@@ -63,6 +64,11 @@ Goldens live at `tests/goldens-<arch>/<slug>/<os>.png` — one set per
 architecture and OS, because Metal and llvmpipe round differently, and llvmpipe
 on arm64 and x86_64 differ too. A platform without its own set fails rather than
 borrowing another's.
+
+On a plain x86_64 Linux host the command works as is: Debian 13 with Mesa 25.0.7
+llvmpipe matched all 39 committed goldens, with no display server and nothing
+installed beyond what the distro ships. The headless path loads EGL, not GLX —
+`libegl1` and what it pulls in is the set that matters.
 
 A responsive composition gets one story per breakpoint arm, not a story per
 width: `app-shell/shell-phone` (390×844, bottom bar and phone insets) and

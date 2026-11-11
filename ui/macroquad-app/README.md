@@ -4,7 +4,7 @@ The shell for a macroquad app that is not a game: the page frame, how you move
 through it, and how you type into it. Run the app on
 `macroquad_gamekit::Stage::Fluid` (one stage unit per point) and lay it out each
 frame with `shell_layout`. The crate brings what `macroquad-widgets`
-deliberately refuses — routes, a real text field with the phone's keyboard, a
+deliberately refuses — routes, real text fields with the phone's keyboard, a
 long clipped grid and a page that scrolls.
 
 `CATALOG.md` is the module index. `examples/shell.rs` is the reference app: two
@@ -33,7 +33,10 @@ the keyboard's top.
   draws its `Message` in the area.
 - A **detail or settings screen** that scrolls as a whole is `Page`: `begin`
   moves it and says where to lay out; `end` records where the layout finished,
-  which is the scroll's end next frame.
+  which is the scroll's end next frame. `reveal` scrolls it so a caret's box —
+  `TextArea::caret_rect` — stays above a reserved band at the bottom, which is
+  the keyboard while it is open. Pass 0 for that band when the page is already
+  inside a body `shell_layout` shortened for the keyboard.
 - **Empty, loading and failed** states are `macroquad_widgets::Message` — from a
   `Load`/`Fetch`, or from a local filter that matched nothing. `show`/`show_in`
   return whether its action was tapped, so a "Clear search" action is one call
@@ -54,6 +57,10 @@ the keyboard's top.
 `Connection Failed: Connect error: Connection refused (os error 111)` — so map it
 before showing it, and let `Message` show words you chose.
 
+There is no local storage: a draft survives back and forward because it lives on
+your `Game`, but a reload loses anything that is not in the route or on a
+server.
+
 ## Typing
 
 One `Keyboard` per app, wrapped around the frame's fields with
@@ -64,12 +71,25 @@ take text, so while a field is edited a real `<input>` sits over it — the page
 half is the app-shell page script, stamped as `gamekit-app-shell.js`
 (`macroquad_gamekit::web::PageScript::AppShell`).
 
-Every field draws its own × once it has a value, and a `Search` field adds the
-lens; a clear is a `FieldReply.changed` like typing is. There is no error state:
-draw the invalid stroke and the message under the field yourself, and pass
-`enabled = false` to `Painter::button` until it validates.
+`TextArea::show` takes the same keyboard and a `TextAreaSpec` — the kind, a
+placeholder, a least and a greatest height, and an optional character limit —
+with the frame's `ScrollInput` and `dt`. The area grows with its text, up to the
+cap, then scrolls inside on its own. `TextArea::height()` is where the next
+thing down the page goes, and `TextArea::caret_rect()` is what `Page::reveal`
+keeps above the keyboard. Return is a newline and Ctrl/Cmd+Enter is the submit.
+Natively it edits with the arrows, Home and End, Delete, shift-selection,
+select-all, copy, cut and paste; on the web the page's element is a real
+`<textarea>`, so the phone's autocorrect, paste and IME apply, and the page
+draws the text while the area is edited. A screen can have both kinds: the page
+makes the element the focused field needs and reuses it until the other kind
+is focused.
 
-The page's `<input>` draws in the browser's font unless the app names its own.
+Every `TextField` draws its own × once it has a value, and a `Search` field
+adds the lens; a clear is a `FieldReply.changed` like typing is. There is no
+error state: draw the invalid stroke and the message under the field yourself,
+and pass `enabled = false` to `Painter::button` until it validates.
+
+The page's field draws in the browser's font unless the app names its own.
 Call `Keyboard::input_font("Noto Sans", "assets/NotoSans-Bold.ttf")` once: the
 page loads a `FontFace` from that URL, so the text does not change weight when a
 field takes the focus. `mq-bundle --assets <dir>` stages the file at `assets/`
@@ -77,6 +97,11 @@ beside the page, and the URL is relative, so `--base` works too. The page also
 clips the input to `Keyboard::clip(rect)` — the body a screen draws its fields
 in — so a field scrolled under the app bar is cut exactly as the canvas cuts it,
 not left floating over the chrome.
+
+The page's input is at least 16 px, because a phone zooms into a smaller one and
+does not zoom back out. `TextField` draws at `TextSize::Md` — 14 on the canvas
+ramp — so its text grows slightly when the field takes the focus. A field that
+must not move needs 16 pt or more, which the widget does not yet take.
 
 ## Drawing
 
@@ -108,10 +133,16 @@ cargo run -p my-app -- --plan .tmp/plan.txt --size 390x844   # several states, o
   when the report finds a problem (text off the surface, cut short, below 8 pt,
   overlapping); `--allow off,cut,small,overlap` excludes a class, so a screen
   that exists to show a cut passes `cut` and still fails on everything else.
-  Both flags apply to `--plan` too, to every state it captures.
+  Both flags apply to `--plan` too, to every state it captures, and a plan stops
+  at the first section whose capture fails — later sections are not captured.
 - The report checks text against the capture's bounds, not against what covers
   it: a row under `with_clip` counts as on-surface, and a row hidden behind the
   keyboard band is not flagged. Read the image for what is occluded.
+- A plan file is sections: `[name]`, then `set <line>` lines — each handed to
+  `Game::setup` — then `shot <frame> <path>`, and `frames <first>-<last> <path>`
+  for a run of frames. Frames count from the section's start at sixty a second.
+  There is no wait-for-a-condition: a reply or an animation is captured by
+  choosing a later frame.
 - A plan cannot tap, drag or type. A section reaches its state through
   `Game::setup` lines — `set search 12` in `examples/shell.rs` — and the app
   decides what each line means, so `set route /prefs` and `set scroll bottom`
@@ -145,14 +176,15 @@ file itself. The bundle stages that directory with `--web`;
 Stamping only writes, and the removal of an old name runs only when cargo
 re-runs the build script: a kit rev bump does, because the gamekit is a
 build-dependency, but a build with nothing changed does not. So a `web/` built
-before the page script moved into the gamekit can still hold `app.js`. The bundle
-stages every `*.js` there, so the page loads the page script twice — and
-`mq-bundle` cannot tell, because both copies provide the imports. If your
-`build.rs` removes it, touch `build.rs` and run `mq-bundle` again to make that
-run — a bare `cargo build --target wasm32-unknown-unknown` runs the script and
+before the page script moved into the gamekit can still hold `app.js`. That is a
+build failure now, not a silent double load: `mq-bundle` refuses two scripts that
+register the same miniquad plugin, naming both (`✗ app.js and
+gamekit-app-shell.js both register …`). Delete the stale file — or, if your
+`build.rs` removes it, touch `build.rs` and run `mq-bundle` again so the removal
+runs; a bare `cargo build --target wasm32-unknown-unknown` runs the script and
 then fails to link without `--allow-undefined`
-(`ui/macroquad-bundle/README.md` says why). Otherwise delete `app.js` by hand;
-`ui/macroquad-wallet-link/build.rs` is the worked example.
+(`ui/macroquad-bundle/README.md` says why). `ui/macroquad-wallet-link/build.rs`
+is the worked example.
 
 ## Android
 

@@ -18,11 +18,12 @@
 //! - **Machinery an app shell needs, built once:** the route in the page's
 //!   hash and the back button ([`Router`]), the safe area and the keyboard
 //!   ([`Insets`]), a real text field with the phone's own keyboard
-//!   ([`TextField`]), HTTP with any method and the reply's status ([`http`]),
-//!   a request read into a screen's type and its loading state ([`Load`]), a
-//!   page that scrolls as a whole ([`Page`]), a virtualised grid
-//!   ([`ArtGrid`]), a virtualised fixed-row list ([`List`]), toasts
-//!   ([`Toasts`]), the app bar and the navigation bar.
+//!   ([`TextField`]), a multi-line one that grows and scrolls ([`TextArea`]),
+//!   HTTP with any method and the reply's status ([`http`]), a request read
+//!   into a screen's type and its loading state ([`Load`]), a page that scrolls
+//!   as a whole ([`Page`]), a virtualised grid ([`ArtGrid`]), a virtualised
+//!   fixed-row list ([`List`]), toasts ([`Toasts`]), the app bar and the
+//!   navigation bar.
 //! - **Still no layout engine.** Rects are computed by the app, as they are
 //!   everywhere else on macroquad. [`shell_layout`] answers the one layout
 //!   every screen shares; a screen lays out its own body.
@@ -56,6 +57,7 @@ pub mod list;
 pub mod load;
 pub mod nav;
 pub mod page;
+pub mod text_area;
 pub mod toast;
 
 pub use app_bar::{AppBar, BarAction, BarHit, Leading, icon_button};
@@ -71,6 +73,7 @@ pub use list::{List, ListGeometry, ListSpec};
 pub use load::{Fetch, Load};
 pub use nav::{NavItem, bottom_nav, nav_rail};
 pub use page::Page;
+pub use text_area::{TEXT_AREA_MAX_H, TEXT_AREA_MIN_H, TextArea, TextAreaReply, TextAreaSpec};
 pub use toast::{Toast, Toasts, Tone};
 
 /// JavaScript source for the miniquad plugin. Stamp it into the web
@@ -96,7 +99,7 @@ pub const PLUGIN_JS: &str = macroquad_gamekit::web::APP_SHELL_JS;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 extern "C" fn app_shell_crate_version() -> u32 {
-    2
+    3
 }
 
 /// A colour as CSS reads it, for the page's own input to match the canvas.
@@ -136,6 +139,6 @@ mod tests {
     #[test]
     fn the_plugin_names_itself_as_the_handshake_does() {
         assert!(PLUGIN_JS.contains("name: 'app_shell'"));
-        assert!(PLUGIN_JS.contains("version: 2,"));
+        assert!(PLUGIN_JS.contains("version: 3,"));
     }
 }

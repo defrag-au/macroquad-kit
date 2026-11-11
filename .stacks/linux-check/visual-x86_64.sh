@@ -34,6 +34,8 @@ fi
 export CARGO_TERM_COLOR=never
 export CARGO_TARGET_DIR=/work/macroquad-kit/.tmp/linux-check-x86_64/target
 # llvmpipe is the renderer these goldens are for; there is no display server.
+# The headless path loads EGL (libEGL_mesa, libgallium, libgbm), so libegl1 is
+# the package that matters; LIBGL_ALWAYS_SOFTWARE changes nothing here.
 export LIBGL_ALWAYS_SOFTWARE=1
 
 if [ "${1:-}" = "bless" ]; then
