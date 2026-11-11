@@ -23,9 +23,9 @@ use macroquad_app::{
 };
 use macroquad_gamekit::{Backdrop, Frame, Game, Stage, clip::with_clip, harness};
 use macroquad_widgets::{
-    Align, Line, Painter, ScrollInput, Theme, fill_rounded, stroke_rounded, theme::with_alpha,
+    Align, Line, Message, Painter, ScrollInput, TextSize, Theme, fill_rounded, stroke_rounded,
+    theme::with_alpha,
 };
-use ui_theme::TextSize;
 
 const COUNT: usize = 2000;
 const TRAITS: usize = 240;
@@ -218,6 +218,20 @@ impl Demo {
                 card(&p, shown[i], r)
             });
         let opened = self.grid.hit(area, &geo, shown.len(), grid_tap);
+
+        if self.shown.is_empty() {
+            let p = painter(&self.font, &self.mono, self.theme, frame, tap);
+            let empty = Message::new(
+                "Nothing matched",
+                "No card matches that search and those filters.",
+            )
+            .action("Clear search");
+            if empty.show_in(&p, area) {
+                self.search.set(&self.keyboard, "");
+                self.filters = [false; 4];
+                self.refilter();
+            }
+        }
 
         if reply.changed {
             self.refilter();

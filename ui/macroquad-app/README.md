@@ -30,8 +30,10 @@ the keyboard's top.
 - A **detail or settings screen** that scrolls as a whole is `Page`: `begin`
   moves it and says where to lay out; `end` records where the layout finished,
   which is the scroll's end next frame.
-- **Empty, loading and failed** states are `macroquad_widgets::Message`, driven
-  from `Load`/`Fetch`. Do not draw your own paragraph of apology.
+- **Empty, loading and failed** states are `macroquad_widgets::Message` — from a
+  `Load`/`Fetch`, or from a local filter that matched nothing. `show`/`show_in`
+  return whether its action was tapped, so a "Clear search" action is one call
+  plus the filter reset. Do not draw your own paragraph of apology.
 - **Routing**: name your screens with a `Route`, parse and write the hash, poll
   once a frame, and show what `poll` reports. The app bar's arrow is
   `Router::up(parent)` when back stays inside the app, and `Router::back()` for
@@ -44,7 +46,8 @@ One `Keyboard` per app, wrapped around the frame's fields with
 painter, the keyboard, its rect, a `FieldKind` (which decides the phone's
 keyboard and its Search key) and a placeholder. On the web the canvas cannot
 take text, so while a field is edited a real `<input>` sits over it — the page
-half is `app.js`, stamped by `build.rs`.
+half is the app-shell page script, stamped as `gamekit-app-shell.js`
+(`macroquad_gamekit::web::PageScript::AppShell`).
 
 ## Drawing
 
@@ -72,6 +75,7 @@ cargo run -p my-app -- --plan .tmp/plan.txt --size 390x844   # several states, o
   when the report finds a problem (text off the surface, cut short, below 8 pt,
   overlapping); `--allow off,cut,small,overlap` excludes a class, so a screen
   that exists to show a cut passes `cut` and still fails on everything else.
+  Both flags apply to `--plan` too, to every state it captures.
 - `window_conf` must be `harness::Args::read().window_conf(conf)`, or a capture
   opens a window (and panics with no display). `examples/shell.rs` is the shape.
 
@@ -101,5 +105,7 @@ file itself. The bundle stages that directory with `--web`;
 
 The app lives in a library target for `mq-apk`, with `quad_main` exported from
 it, and carries its own `android/AndroidManifest.xml`.
-`ui/macroquad-apk/README.md` has the shape, and `montager`'s `montage-mq` is the
-worked example.
+`ui/macroquad-apk/README.md` has the shape, and
+`ui/macroquad-apk/android/AndroidManifest.example.xml` is a minimal phone
+manifest to copy. An app that uses `http` or `Fetch` needs
+`android.permission.INTERNET` in it; the example carries the line.

@@ -321,6 +321,12 @@ impl<'a> Painter<'a> {
     /// block's capitals are centred on the rect's midline, so a two-line row
     /// sits in its box the way a one-line label does. Descenders hang below
     /// their line, as in print; leave room for them in `gap`.
+    ///
+    /// `gap` is the caller's to choose, and the two uses want different numbers:
+    /// a title over a subtitle is a visual gap (7 in an app bar's title box),
+    /// while paragraph lines want the line advance minus a cap height, so their
+    /// baselines land on the advance (`Message` passes 12 for a 12 pt detail's
+    /// 22 pt advance). Nothing here infers leading from `line.size`.
     pub fn stack_in(&self, lines: &[Line<'_>], rect: Rect, align: Align, gap: f32) {
         let cap = |l: &Line<'_>| match l.mono {
             true => self.cap_height_mono(l.size),

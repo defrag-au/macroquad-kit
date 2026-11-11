@@ -2,7 +2,8 @@
 //! own keyboard: its autocorrect, its paste, its IME and its Search key.
 //!
 //! On the web the canvas cannot take text, so while a field is being edited a
-//! real `<input>` sits exactly over the field's text box (`js/app.js`): the
+//! real `<input>` sits exactly over the field's text box (the app shell's page
+//! script, stamped as `gamekit-app-shell.js`): the
 //! canvas draws the field's chrome around it, and the page draws the text and
 //! the caret. A phone opens its keyboard only for a focus a tap made, so the
 //! field names its box to the page every frame, and the page focuses the input
@@ -42,7 +43,7 @@ pub enum FieldKind {
 }
 
 impl FieldKind {
-    /// The code `js/app.js` reads.
+    /// The code the app shell's page script reads.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     fn code(self) -> u32 {
         match self {

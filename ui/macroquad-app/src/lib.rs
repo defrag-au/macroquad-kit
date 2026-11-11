@@ -34,8 +34,10 @@
 //!
 //! # The page
 //!
-//! `js/app.js` is a miniquad plugin ([`PLUGIN_JS`]): stamp it into the web
-//! directory from `build.rs`, as every plugin is, and the bundler stages it.
+//! The app shell's page half is a miniquad plugin ([`PLUGIN_JS`]): stamp it
+//! into the web directory as `gamekit-app-shell.js` from `build.rs`, as every
+//! plugin is, and the bundler stages it. Its source is
+//! `gaming/macroquad-gamekit/js/app-shell.js`.
 //! Natively each service has a plain-Rust stand-in, so an app runs, is
 //! captured and is tested off the web: an in-memory history (`--route` opens
 //! a deep screen), insets from `--insets`, a text field that reads the
@@ -76,7 +78,7 @@ pub use toast::{Toast, Toasts, Tone};
 /// against:
 ///
 /// ```ignore
-/// fs::write(web.join("app.js"), macroquad_app::PLUGIN_JS)?;
+/// fs::write(web.join("gamekit-app-shell.js"), macroquad_app::PLUGIN_JS)?;
 /// ```
 ///
 /// A build script can also stamp it through the gamekit, which does not compile

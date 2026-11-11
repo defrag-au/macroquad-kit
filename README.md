@@ -113,8 +113,14 @@ Every kit crate it uses points at the same rev:
 macroquad-app = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
 macroquad-gamekit = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
 macroquad-widgets = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
+macroquad-bundle = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
+macroquad-apk = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
 macroquad = "0.4"
 ```
+
+The last two are what `tools/mq-bundle` and `tools/mq-apk` take with
+`workspace = true`; the block is the one place a rev is written, and every line
+carries the same one.
 
 The same root `Cargo.toml` carries **both** `[patch]` lines above. They are not
 only for the gamekit: the miniquad one is what gives every client the headless
@@ -148,8 +154,8 @@ It also carries:
 For an APK the app lives in a **library** target: `src/lib.rs` holds the app and
 exports miniquad's entry point, and `src/main.rs` calls into it for native and
 web. `macroquad-apk` builds the library as a `cdylib`, which is what the Android
-activity loads. `ui/macroquad-apk/README.md` has the shape, and `montager`'s
-`montage-mq` is the worked example.
+activity loads. `ui/macroquad-apk/README.md` has the shape, and
+`ui/macroquad-apk/android/AndroidManifest.example.xml` is the manifest to copy.
 
 The repository is private, so cargo's git fetch needs credentials: a credential
 helper (`credential.https://github.com.helper = !gh auth git-credential` in

@@ -27,7 +27,7 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
 | `--wasm` | the bin target's file name, which is also the name staged in `--dest` |
 | `--title` | the page title and the web app manifest's name |
 | `--dest` | the output directory |
-| `--web` | a directory of extra `*.js` to copy — the crate's stamped plugin scripts |
+| `--web` | a directory of extra `*.js` to copy — the crate's stamped page scripts |
 | `--base` | a path prefix for every URL, such as `/pump/`; a trailing slash is added |
 | `--shell` | an `index.html` template with `__TITLE__`, `__SCRIPTS__` and `__WASM__` |
 | `--no-build` | stage a wasm that is already built |
@@ -52,8 +52,10 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
    beside a wasm that does not import it.
 5. **Stages** `gl.js`, `sapp_jsutils.js` when linked, `quad-net.js` when the
    wasm imports a socket or HTTP function, then every `*.js` in `--web`. The
-   crate's own plugins are stamped into `--web` by its `build.rs`, from each
-   plugin crate's `PLUGIN_JS`.
+   crate's own page scripts are stamped into `--web` by its `build.rs`: the app
+   shell through `macroquad_gamekit::web::stamp_scripts(PageScript::AppShell)`,
+   miniquad plugins through `stamp`. Nothing is copied from a plugin crate by
+   hand.
 6. **Renders** `index.html` from the shared shell (`src/page.rs`, `shell.html`)
    with the wasm content-hashed into `load()`, so a proxy or browser cannot keep
    a stale build alive, and writes `manifest.webmanifest`.

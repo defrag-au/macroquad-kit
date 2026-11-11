@@ -53,13 +53,22 @@ The package must hold the app in a **library** target. `macroquad-apk` runs
   }
   ```
 
+  `app()` is the `async fn` that does the work — loads the fonts, then
+  `macroquad_gamekit::app::run_on(Stage::Fluid, …).await`. `Window::from_config`
+  is what `#[macroquad::main]` would have generated, as a call a library can
+  make: the same `run()` serves native, wasm and Android, with `main.rs` and
+  `quad_main` both just calling it.
+
 - `src/main.rs` — `fn main() { my_app::run() }`, for native and web.
-- `android/AndroidManifest.xml` — the app's own. `package="${package}"` is
-  substituted (miniquad's `TARGET_PACKAGE_NAME` too); otherwise it must name the
-  package `--package` gives. It needs `.MainActivity`, a launcher intent filter,
-  GLES 2 and the `configChanges` miniquad expects. `montager`'s
-  `crates/montage-mq/android/AndroidManifest.xml` is a worked example.
-- `web/` — the plugin scripts `build.rs` stamps, for the web build.
+- `android/AndroidManifest.xml` — the app's own. `android/AndroidManifest.example.xml`
+  beside this README is a minimal phone manifest to start from.
+  `package="${package}"` is substituted (miniquad's `TARGET_PACKAGE_NAME` too);
+  otherwise it must name the package `--package` gives. It needs `.MainActivity`,
+  a launcher intent filter, GLES 2, and the `configChanges` miniquad expects. An
+  app that uses `macroquad-app`'s `http`/`Fetch` also needs
+  `android.permission.INTERNET` — without it the request fails with no useful
+  error — and the example carries that line.
+- `web/` — the page scripts `build.rs` stamps, for the web build.
 
 `--library` is the library name (`field_guide`) and `--crate` the package
 (`field-guide`); they are not the same string.
@@ -108,8 +117,11 @@ verification's exit status is the build's.
 
 ## The SDK
 
-A real build runs inside defrag-nix's `android` shell, which brings the SDK and
-both Rust Android targets. From the environment:
+A real build runs inside `defrag-nix`'s `android` shell
+(`~/code/defrag/defrag-nix`; `nix develop .#android` in that repo, or
+`nix develop ~/code/defrag/defrag-nix#android` from anywhere else). It brings the
+SDK, the NDK and both Rust Android targets — platform 36, build-tools 36.0.0,
+NDK 29.0.14206865 and a minimum API of 30. From the environment:
 
 | variable | default | what it is |
 | --- | --- | --- |
@@ -143,4 +155,7 @@ for the pinned platform is refused before any step runs.
 
 This tool produces an APK and never needs a phone. Installing it, launching it
 cold, reading `SAPP` and crash logs, and capturing the screen belong to
-`android-shot` in `agent-playbook`, which composes this packager.
+`android-shot` in `agent-playbook` (`~/code/defrag/agent-playbook`): the tool is
+`tools/android-shot/` and its procedure is `skills/android-shot/SKILL.md`,
+published into `.skill-store/`. It owns `adb`, and it runs inside the same
+`android` shell.
