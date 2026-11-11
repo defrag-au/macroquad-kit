@@ -10,7 +10,7 @@
 //!
 //! Each repo has a `tools/mq-bundle` crate whose `main` is [`main`]: cargo
 //! runs only its own workspace's binaries, and that keeps the bundler pinned
-//! by the same shared-crates rev as the game, runnable in CI with only cargo.
+//! by the same macroquad-kit rev as the game, runnable in CI with only cargo.
 //!
 //! Every step exists because skipping it once cost a debugging round:
 //!

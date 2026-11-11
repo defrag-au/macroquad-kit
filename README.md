@@ -19,6 +19,25 @@ tile5-macroquad ──┘
 invariant the extraction preserves; if it is ever violated, a rev bump starts
 ping-ponging between the two repositories.
 
+## Where to look
+
+Each crate reached for cold has an index beside it:
+
+| Read | For |
+| --- | --- |
+| [`ui/macroquad-widgets/CATALOG.md`](ui/macroquad-widgets/CATALOG.md) | the stateless widgets: atoms, molecules, bounded views |
+| [`gaming/macroquad-gamekit/CATALOG.md`](gaming/macroquad-gamekit/CATALOG.md) | stateful game modules that hold across frames |
+| [`gaming/macroquad-gamekit/ANIMATION.md`](gaming/macroquad-gamekit/ANIMATION.md) | sprites, gaits and the motion rubric |
+| [`gaming/macroquad-gamekit/CARD-FACES.md`](gaming/macroquad-gamekit/CARD-FACES.md) | card faces: the visible strip, layers, baking |
+| [`ui/macroquad-app/CATALOG.md`](ui/macroquad-app/CATALOG.md) | the app shell: routes, text entry, insets, pages, grids |
+| [`ui/macroquad-storybook/README.md`](ui/macroquad-storybook/README.md) | stories, captures, the text report and the goldens |
+| [`ui/macroquad-bundle/README.md`](ui/macroquad-bundle/README.md) | the web bundle: flags, steps, refusals |
+| [`ui/macroquad-apk/README.md`](ui/macroquad-apk/README.md) | the APK: flags, the plan, the SDK, refusals |
+
+The three catalogues are generated from each module's own `//!` header, so a
+module without one fails its crate's test. The storybook and the two packaging
+tools document their flags in a README, because the flags are the interface.
+
 ## Build and test
 
 The toolchain comes from the flake. Run `direnv allow .` once, then `cargo` is on
