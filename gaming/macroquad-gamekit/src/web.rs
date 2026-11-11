@@ -214,7 +214,7 @@ mod tests {
     fn the_app_shell_page_script_is_the_plugin_the_crate_expects() {
         let js = PageScript::AppShell.js();
         assert!(js.contains("name: 'app_shell'"));
-        assert!(js.contains("version: 1,"));
+        assert!(js.contains("version: 2,"));
     }
 
     #[test]

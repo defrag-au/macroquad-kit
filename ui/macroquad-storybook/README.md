@@ -76,12 +76,14 @@ UPDATE_GOLDENS=1 cargo test -p macroquad-storybook --test visual
 ```
 
 That writes the current machine's set — arm64 on Apple Silicon, x86_64 on Intel.
-The x86_64 Linux set is the CI runner's, because its Mesa is the contract: run
-the `Visual Goldens` workflow with `bless_goldens` and download the
-`goldens-x86_64` artefact, then replace the set (a bless writes all of it, so
-do not merge). The aarch64 Linux set comes from `.stacks/linux-check`; its
-README has the commands. A bless silences the picture check; it cannot silence
-the text report.
+Neither Linux set is written this way. `.stacks/linux-check` writes the aarch64
+set in its arm64 container, and the x86_64 set in an amd64 `ubuntu:24.04`
+container under Rosetta; its README has both commands, and the x86_64 path was
+byte-identical to every committed golden when it was added. The x86_64 set is
+also what the `Visual Goldens` workflow checks, on the runner whose Mesa is the
+contract: a `bless_goldens` dispatch writes it and uploads `goldens-x86_64`.
+A bless writes the whole set, so replace rather than merge. A bless silences
+the picture check; it cannot silence the text report.
 
 ## The web build
 
@@ -92,7 +94,8 @@ The bundler then stages every `*.js` there:
 ```sh
 cargo run -q -p mq-bundle -- --package macroquad-storybook \
     --wasm macroquad-storybook.wasm --title "macroquad storybook" \
-    --dest .tmp/storybook-web --web ui/macroquad-storybook/web
+    --dest .tmp/storybook-web --web ui/macroquad-storybook/web \
+    --assets ui/macroquad-storybook/assets
 ```
 
 Serve `.tmp/storybook-web` with any static server. The "wallet modal · real

@@ -449,6 +449,7 @@ impl Game for Demo {
         let body_tap = tap.filter(|t| !in_chrome(*t));
 
         self.keyboard.begin(frame);
+        self.keyboard.clip(layout.body);
         match screen {
             Screen::Tab(0) => self.browse(frame, layout.body, layout.gutter, body_tap),
             Screen::Tab(1) => self.traits(frame, layout.body, layout.gutter, body_tap),

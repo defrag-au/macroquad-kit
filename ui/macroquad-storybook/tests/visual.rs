@@ -36,9 +36,10 @@
 //! ```
 //!
 //! That writes the current machine's set: arm64 on an Apple Silicon host,
-//! x86_64 on an Intel one. The x86_64 Linux set is the CI runner's; take it
-//! from the `visual-captures` artifact (or an Ubuntu 24.04 amd64 container),
-//! not from a bless on an Apple Silicon machine.
+//! x86_64 on an Intel one. A Linux set is written in a container, never by a
+//! native bless: `.stacks/linux-check` has the arm64 and (Rosetta) amd64
+//! recipes. The x86_64 set is also what CI checks on `ubuntu-24.04`, whose Mesa
+//! is the contract; a `bless_goldens` dispatch writes it.
 //!
 //! The categories below are the ones stable enough to pin. A category joins
 //! the list once its view models stop moving under feature work; every story

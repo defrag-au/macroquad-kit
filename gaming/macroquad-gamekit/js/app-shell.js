@@ -118,18 +118,32 @@
     let zones = new Map();        // id -> { box, value, placeholder, kind, font, color }
     let nextZones = new Map();
     let focused = -1;             // the id being edited, or -1
+    let wanted = -1;              // a field the app asked to focus, when it is drawn
     let submits = 0;              // Enter presses, ever
     let input = null;
+    let clip = null;              // the box the app's visible area clips the input to
+    let zoneClip = [0, 0, 1, 1];  // that area, as canvas fractions
+    let inputFont = '';           // the app's face, as a CSS family stack
+
+    const FALLBACK_FONT = 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
 
     function ensureInput() {
         if (input) return input;
+        // The canvas is the whole surface the app draws, so the input is
+        // clipped to it: a field scrolled under the app bar, or off the page,
+        // is cut the way the canvas cuts its own drawing instead of floating
+        // over the chrome. The wrapper takes no pointer, so taps reach the
+        // canvas as before.
+        clip = document.createElement('div');
+        clip.style.cssText = 'position:fixed;display:none;overflow:hidden;'
+            + 'pointer-events:none;z-index:10;';
         input = document.createElement('input');
         input.type = 'text';
         input.setAttribute('autocomplete', 'off');
         input.setAttribute('spellcheck', 'false');
-        input.style.cssText = 'position:fixed;display:none;margin:0;padding:0;border:0;'
-            + 'outline:none;background:transparent;z-index:10;box-sizing:border-box;'
-            + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
+        input.style.cssText = 'position:absolute;display:block;margin:0;padding:0;border:0;'
+            + 'outline:none;background:transparent;box-sizing:border-box;'
+            + 'font-family:' + FALLBACK_FONT + ';';
         // miniquad's page cancels every paste at the window, for its own
         // clipboard. Stopping the event here, before it bubbles there, lets
         // the input take what was pasted.
@@ -146,13 +160,14 @@
         });
         input.addEventListener('blur', function () {
             focused = -1;
-            input.style.display = 'none';
+            if (clip) clip.style.display = 'none';
             const c = canvasEl();
             // Back to the canvas, so the app's own keys work again. A phone
             // does not reopen a keyboard for a canvas.
             if (c) c.focus({ preventScroll: true });
         });
-        document.body.appendChild(input);
+        clip.appendChild(input);
+        document.body.appendChild(clip);
         return input;
     }
 
@@ -160,8 +175,20 @@
         const c = canvasEl();
         if (!c) return;
         const r = c.getBoundingClientRect();
-        el.style.left = (r.left + box[0] * r.width) + 'px';
-        el.style.top = (r.top + box[1] * r.height) + 'px';
+        // The app says which rect its fields are drawn in (the body, not the
+        // window); the input is clipped to it and positioned inside it.
+        const cx = r.left + zoneClip[0] * r.width;
+        const cy = r.top + zoneClip[1] * r.height;
+        const cw = Math.max(0, (zoneClip[2] - zoneClip[0]) * r.width);
+        const ch = Math.max(0, (zoneClip[3] - zoneClip[1]) * r.height);
+        if (clip) {
+            clip.style.left = cx + 'px';
+            clip.style.top = cy + 'px';
+            clip.style.width = cw + 'px';
+            clip.style.height = ch + 'px';
+        }
+        el.style.left = (box[0] * r.width - (cx - r.left)) + 'px';
+        el.style.top = (box[1] * r.height - (cy - r.top)) + 'px';
         el.style.width = ((box[2] - box[0]) * r.width) + 'px';
         el.style.height = ((box[3] - box[1]) * r.height) + 'px';
     }
@@ -172,6 +199,7 @@
         el.style.fontSize = Math.max(16, z.font) + 'px';
         el.style.color = z.color;
         el.style.caretColor = z.color;
+        el.style.fontFamily = inputFont || FALLBACK_FONT;
         el.placeholder = z.placeholder;
         // 1: search (the keyboard's key says Search), 2: an address or an id
         // (no capitals, no autocorrect).
@@ -187,7 +215,7 @@
         const el = ensureInput();
         styleFor(el, z);
         el.value = z.value;
-        el.style.display = 'block';
+        if (clip) clip.style.display = 'block';
         place(el, z.box);
         focused = id;
         el.focus({ preventScroll: true });
@@ -215,6 +243,12 @@
         nextZones = new Map();
     }
 
+    // The rect the app draws its fields in, as canvas fractions: the input is
+    // clipped to it, so a field under the app bar does not float over it.
+    function app_input_clip(x0, y0, x1, y1) {
+        if (x1 > x0 && y1 > y0) zoneClip = [x0, y0, x1, y1];
+    }
+
     function app_input_zone(id, x0, y0, x1, y1, value_js, placeholder_js, kind, font, color_js) {
         const value = consume_js_object(value_js);
         const placeholder = consume_js_object(placeholder_js);
@@ -227,6 +261,10 @@
     // its field, or let it go if the field is gone.
     function app_input_zones_done() {
         zones = nextZones;
+        if (wanted >= 0 && zones.has(wanted)) {
+            startEditing(wanted);
+            wanted = -1;
+        }
         if (focused < 0 || !input) return;
         const z = zones.get(focused);
         if (!z) {
@@ -255,6 +293,34 @@
 
     function app_input_blur() {
         if (input && focused >= 0) input.blur();
+    }
+
+    // The app's face, named once: the canvas draws it from bytes the page
+    // cannot see, so the page fetches the same file (`mq-bundle --assets`)
+    // and draws the input in it. Until it loads, the fallback stack stays.
+    function app_input_font(family_js, url_js) {
+        const family = consume_js_object(family_js);
+        const url = consume_js_object(url_js);
+        if (!family || !url || inputFont) return;
+        inputFont = '"' + family.replace(/"/g, '') + '", ' + FALLBACK_FONT;
+        if (input) input.style.fontFamily = inputFont;
+        if (typeof FontFace !== 'function') return;
+        const face = new FontFace(family, 'url("' + url.replace(/"/g, '%22') + '")');
+        face.load().then(function (loaded) {
+            document.fonts.add(loaded);
+            if (input) input.style.fontFamily = inputFont;
+        }).catch(function () { /* the fallback stack stays */ });
+    }
+
+    // Focus a field once the app has drawn it, for a capture or a screen that
+    // opens on its first field. A negative id puts the keyboard away.
+    function app_input_focus(id) {
+        if (id < 0) {
+            wanted = -1;
+            if (input && focused >= 0) input.blur();
+            return;
+        }
+        wanted = id;
     }
 
     // ── HTTP ────────────────────────────────────────────────────────────────
@@ -331,6 +397,7 @@
         importObject.env.app_history_pops = app_history_pops;
         importObject.env.app_inset = app_inset;
         importObject.env.app_input_zones_clear = app_input_zones_clear;
+        importObject.env.app_input_clip = app_input_clip;
         importObject.env.app_input_zone = app_input_zone;
         importObject.env.app_input_zones_done = app_input_zones_done;
         importObject.env.app_input_focused = app_input_focused;
@@ -338,6 +405,8 @@
         importObject.env.app_input_set = app_input_set;
         importObject.env.app_input_submits = app_input_submits;
         importObject.env.app_input_blur = app_input_blur;
+        importObject.env.app_input_focus = app_input_focus;
+        importObject.env.app_input_font = app_input_font;
         importObject.env.app_http = app_http;
         importObject.env.app_http_state = app_http_state;
         importObject.env.app_http_status = app_http_status;
@@ -349,5 +418,5 @@
     // Bumped with every change to the functions above, with the Rust export
     // beside it, so a page carrying an older copy fails at instantiate rather
     // than calling a function gl.js stubbed out.
-    miniquad_add_plugin({ register_plugin, version: 1, name: 'app_shell' });
+    miniquad_add_plugin({ register_plugin, version: 2, name: 'app_shell' });
 })();

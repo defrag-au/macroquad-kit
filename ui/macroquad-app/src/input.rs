@@ -72,6 +72,7 @@ mod page {
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {
         fn app_input_zones_clear();
+        fn app_input_clip(x0: f32, y0: f32, x1: f32, y1: f32);
         #[allow(clippy::too_many_arguments)]
         fn app_input_zone(
             id: u32,
@@ -91,10 +92,17 @@ mod page {
         fn app_input_set(value: JsObject);
         fn app_input_submits() -> u32;
         fn app_input_blur();
+        fn app_input_focus(id: u32);
+        fn app_input_font(family: JsObject, url: JsObject);
     }
 
     pub fn clear() {
         unsafe { app_input_zones_clear() }
+    }
+
+    pub fn clip(frac: [f32; 4]) {
+        let [x0, y0, x1, y1] = frac;
+        unsafe { app_input_clip(x0, y0, x1, y1) }
     }
 
     pub struct Zone<'a> {
@@ -150,6 +158,14 @@ mod page {
     pub fn blur() {
         unsafe { app_input_blur() }
     }
+
+    pub fn focus(id: u32) {
+        unsafe { app_input_focus(id) }
+    }
+
+    pub fn font(family: &str, url: &str) {
+        unsafe { app_input_font(JsObject::string(family), JsObject::string(url)) }
+    }
 }
 
 /// The app's one keyboard: which field is being edited, and this frame's
@@ -166,6 +182,15 @@ pub struct Keyboard {
     /// how a field's rect becomes a box on the page.
     u: f32,
     origin: Vec2,
+    /// The face the page's input draws in, and the URL it fetches.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    page_font: Option<(String, String)>,
+    /// The page has been told the face.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    font_sent: bool,
+    /// The rect the fields are drawn in, for the page's input clip.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    clip: Option<Rect>,
     #[cfg(target_arch = "wasm32")]
     seen_submits: u32,
     /// Native: this frame's typing.
@@ -204,8 +229,15 @@ impl Keyboard {
         self.u = u;
         self.origin = origin;
         self.was_focused = self.focused;
+        self.clip = None;
         #[cfg(target_arch = "wasm32")]
         {
+            if !self.font_sent
+                && let Some((family, url)) = &self.page_font
+            {
+                page::font(family, url);
+                self.font_sent = true;
+            }
             page::clear();
             self.focused = page::focused();
             let submits = page::submits();
@@ -247,13 +279,59 @@ impl Keyboard {
     /// Call once a frame, after the last field.
     pub fn end(&mut self) {
         #[cfg(target_arch = "wasm32")]
-        page::done();
+        {
+            let frac = match self.clip {
+                Some(rect) => self.fractions(rect),
+                None => [0.0, 0.0, 1.0, 1.0],
+            };
+            page::clip(frac);
+            page::done();
+        }
+    }
+
+    /// The rect the fields are drawn in — the body a screen clips to.
+    ///
+    /// The page clips its `<input>` to it, so a field scrolled under the app
+    /// bar or off the page is cut exactly as the canvas cuts the field, rather
+    /// than floating over the chrome. Call it once a frame after
+    /// [`Keyboard::begin`] and before the fields; the default is the whole
+    /// stage. The app bar and the navigation are outside it.
+    pub fn clip(&mut self, rect: Rect) {
+        self.clip = Some(rect);
     }
 
     /// Whether any field is being edited: a screen keeps its own key
     /// bindings off while one is.
     pub fn editing(&self) -> bool {
         self.focused.is_some()
+    }
+
+    /// The face the page's `<input>` draws in, and where it fetches it.
+    ///
+    /// The canvas draws a font from bytes the page cannot see, so while a
+    /// field is edited the browser's input would otherwise change face and
+    /// weight under the reader's eyes. Name the same face and a URL the page
+    /// can fetch it from — `mq-bundle --assets <dir>` stages a directory at
+    /// `assets/` beside the page — and the input uses it. A relative URL is
+    /// resolved against the page, so it works under `--base` too. Call once,
+    /// before the first field is drawn; natively it changes nothing.
+    pub fn input_font(&mut self, family: &str, url: &str) {
+        self.page_font = Some((family.to_owned(), url.to_owned()));
+    }
+
+    /// Focus the field `id`, as a tap would.
+    ///
+    /// On the web the page focuses its input as soon as the field is drawn;
+    /// natively the field is edited from this frame. A capture plan can use
+    /// it, through the app's own `setup` lines, to show a field being edited
+    /// and the keyboard-open layout around it.
+    pub fn focus(&mut self, id: u32) {
+        #[cfg(target_arch = "wasm32")]
+        page::focus(id);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.focused = Some(id);
+        }
     }
 
     /// Stop editing, and put the phone's keyboard away.

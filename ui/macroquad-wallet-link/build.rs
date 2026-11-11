@@ -23,7 +23,10 @@ fn main() {
     // Before the app shell moved into the gamekit this script was stamped as
     // `app.js`. `stamp_scripts` writes and never removes, and `mq-bundle`
     // stages every `*.js` in `--web`, so a `web/` built before the move would
-    // carry both copies and the page would load the page script twice.
+    // carry both copies and the page would load the page script twice. This
+    // runs only when cargo re-runs the script — a gamekit rev bump does, a
+    // build with nothing changed does not — so an `app.js` that appears later
+    // still needs deleting by hand; `mq-bundle` cannot tell the copies apart.
     match fs::remove_file(web.join("app.js")) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

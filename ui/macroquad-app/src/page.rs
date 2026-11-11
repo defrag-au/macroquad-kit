@@ -63,6 +63,13 @@ impl Page {
     pub fn scroll_home(&mut self) {
         self.scroll.set(0.0);
     }
+
+    /// Jump to `offset` in the content, stopping any coast: a position
+    /// restored from a route, or a capture that shows a scrolled screen.
+    /// Clamped on the next [`Page::begin`], once the height is known.
+    pub fn set(&mut self, offset: f32) {
+        self.scroll.set(offset);
+    }
 }
 
 #[cfg(test)]
@@ -95,6 +102,21 @@ mod tests {
         assert_eq!(page.offset(), 1000.0 + FOOT - AREA.h);
         let (top, _) = page.begin(AREA, &drag(-900.0), None, 1.0 / 60.0);
         assert_eq!(top, AREA.y - page.offset());
+    }
+
+    #[test]
+    fn a_page_can_be_placed_at_a_position() {
+        let mut page = Page::new();
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        page.end(top, top + 1000.0);
+        page.set(200.0);
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 200.0);
+        assert_eq!(top, AREA.y - 200.0);
+        // A position past the end is clamped when the frame lays out.
+        page.set(10_000.0);
+        page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 1000.0 + FOOT - AREA.h);
     }
 
     #[test]

@@ -56,6 +56,7 @@ A minimal app and game ship as examples:
 
 ```sh
 cargo run -p macroquad-app --example shell
+cargo run -p macroquad-app --example form
 cargo run -p macroquad-gamekit --example board
 ```
 

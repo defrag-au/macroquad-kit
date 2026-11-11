@@ -117,11 +117,22 @@ verification's exit status is the build's.
 
 ## The SDK
 
-A real build runs inside `defrag-nix`'s `android` shell
-(`~/code/defrag/defrag-nix`; `nix develop .#android` in that repo, or
-`nix develop ~/code/defrag/defrag-nix#android` from anywhere else). It brings the
-SDK, the NDK and both Rust Android targets — platform 36, build-tools 36.0.0,
-NDK 29.0.14206865 and a minimum API of 30. From the environment:
+A real build runs inside `defrag-nix`'s `android` shell, which brings the SDK,
+the NDK and both Rust Android targets — platform 36, build-tools 36.0.0, NDK
+29.0.14206865 and a minimum API of 30. It is an org repository with access
+required (`https://github.com/defrag-au/defrag-nix`): from a checkout,
+`nix develop .#android`; from elsewhere, `nix develop <checkout>#android`.
+Without access, any SDK install that provides `aapt2`, `d8`, `zipalign`,
+`apksigner` and both Android Rust targets will do — the variables below are the
+whole contract.
+
+The shell also exports the NDK's clang as each target's C compiler and linker:
+`CC_aarch64_linux_android`, `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`, and the
+`armv7` pair. That is what builds a C dependency in the tree (`ring`, under
+rustls) for Android with no `.cargo/config`; the packager runs cargo without a
+linker of its own.
+
+From the environment:
 
 | variable | default | what it is |
 | --- | --- | --- |
@@ -155,7 +166,9 @@ for the pinned platform is refused before any step runs.
 
 This tool produces an APK and never needs a phone. Installing it, launching it
 cold, reading `SAPP` and crash logs, and capturing the screen belong to
-`android-shot` in `agent-playbook` (`~/code/defrag/agent-playbook`): the tool is
+`android-shot` in `agent-playbook`, an org repository with access required
+(`https://github.com/defrag-au/agent-playbook`): the tool is
 `tools/android-shot/` and its procedure is `skills/android-shot/SKILL.md`,
-published into `.skill-store/`. It owns `adb`, and it runs inside the same
-`android` shell.
+published into `.skill-store/`. It owns `adb` and runs inside the same `android`
+shell. Without access it has no hidden steps: `adb install -r`, `am start -n
+<package>/.MainActivity`, `adb logcat` and `adb exec-out screencap -p`.

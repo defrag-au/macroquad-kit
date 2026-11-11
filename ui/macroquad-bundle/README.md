@@ -15,7 +15,7 @@ whose `main` is `macroquad_bundle::main()`. That is what makes
 
 ```sh
 cargo run -q -p mq-bundle -- --package <crate> --wasm <bin>.wasm \
-    --title "<Title>" --dest <dir> [--web <dir>] [--base /path/] \
+    --title "<Title>" --dest <dir> [--web <dir>] [--assets <dir>] [--base /path/] \
     [--shell <template.html>] [--no-build]
 
 cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
@@ -28,6 +28,7 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
 | `--title` | the page title and the web app manifest's name |
 | `--dest` | the output directory |
 | `--web` | a directory of extra `*.js` to copy — the crate's stamped page scripts |
+| `--assets` | a directory copied into `<dest>/assets/`, replacing it — a font the page fetches |
 | `--base` | a path prefix for every URL, such as `/pump/`; a trailing slash is added |
 | `--shell` | an `index.html` template with `__TITLE__`, `__SCRIPTS__` and `__WASM__` |
 | `--no-build` | stage a wasm that is already built |
@@ -55,7 +56,10 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
    crate's own page scripts are stamped into `--web` by its `build.rs`: the app
    shell through `macroquad_gamekit::web::stamp_scripts(PageScript::AppShell)`,
    miniquad plugins through `stamp`. Nothing is copied from a plugin crate by
-   hand.
+   hand. Two staged scripts that register the same miniquad plugin is a
+   refusal: the page loads both, and the second wins silently. `--assets`
+   copies its directory into `<dest>/assets/`, replacing it, for a file the
+   page fetches — a font for the text input, say.
 6. **Renders** `index.html` from the shared shell (`src/page.rs`, `shell.html`)
    with the wasm content-hashed into `load()`, so a proxy or browser cannot keep
    a stale build alive, and writes `manifest.webmanifest`.
@@ -70,6 +74,9 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
   glyph-atlas bug, naming the `[patch]` to copy. A non-gamekit client is warned.
 - A `--web` directory that carries its own `gl.js`, `sapp_jsutils.js` or
   `quad-net.js`; the bundler stages those, and a second copy would drift.
+- Two staged scripts that register the same miniquad plugin, naming both files:
+  a page loads both, and the second wins with no error. A page script left
+  under its old name is the common cause.
 - A wasm that imports a function no staged script provides, listing the
   functions and the scripts that were staged.
 - A crate reached at two versions in the resolve graph — a page can load only
@@ -95,6 +102,9 @@ scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
   like a missing page script.
 - **A renamed page script is not deleted for you.** `--web` is staged whole, so
   a generated directory that still holds a script's old name is copied beside
-  the new one and the page loads both. The client's `build.rs` owns the rename:
-  delete the superseded file when it stamps, as `macroquad-wallet-link/build.rs`
-  does for `app.js` → `gamekit-app-shell.js`.
+  the new one and the page loads both — and the bundle cannot see it, because
+  both copies provide the imports. A client's `build.rs` removal only runs when
+  cargo re-runs that script (a kit rev bump does; a build with nothing changed
+  does not), so delete the superseded file by hand when it is there:
+  `macroquad-wallet-link/build.rs` is the worked example for `app.js` →
+  `gamekit-app-shell.js`.

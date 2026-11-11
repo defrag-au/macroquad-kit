@@ -1111,6 +1111,7 @@ fn stories(sample_icon: Option<Texture2D>) -> Vec<Story> {
         Story::app("app · bar", AppView::Bar),
         Story::app("app · navigation", AppView::Nav),
         Story::app("app · text field", AppView::Field),
+        Story::app("form page", AppView::Form),
         Story::app("app · chips", AppView::Chips),
         Story::app("app · toasts", AppView::Toasts),
         Story::app("app · grid", AppView::Grid),

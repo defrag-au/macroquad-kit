@@ -10,8 +10,8 @@
 use macroquad::prelude::*;
 use macroquad_app::{
     AppBar, ArtGrid, BarAction, Chip, FIELD_H, FieldKind, Glyph, GridSpec, Insets, Keyboard,
-    Leading, List, ListSpec, NavItem, NavPlace, TextField, Toasts, Tone, bottom_nav, chip_row,
-    nav_rail, shell_layout,
+    Leading, List, ListSpec, NavItem, NavPlace, Page, TextField, Toasts, Tone, bottom_nav,
+    chip_row, nav_rail, shell_layout,
 };
 use macroquad_gamekit::clip::with_clip;
 use macroquad_widgets::{
@@ -42,13 +42,31 @@ pub enum AppView {
     ShellPhone,
     /// The whole shell at a desk's size: the rail and no insets.
     ShellDesk,
+    /// A scrolling form: three fields, an error under one, settings rows, and
+    /// the field being edited scrolled under the app bar.
+    Form,
 }
+
+/// The settings rows under the form: a label left, a value right, a rule.
+const SETTINGS: [(&str, &str); 6] = [
+    ("Email", "ada@example.com"),
+    ("Time zone", "AEST · UTC+10"),
+    ("Language", "English"),
+    ("Currency", "AUD"),
+    ("Notifications", "On"),
+    ("Weekly summary", "Off"),
+];
 
 pub struct AppStory {
     view: AppView,
     keyboard: Keyboard,
     empty: TextField,
     filled: TextField,
+    name: TextField,
+    handle: TextField,
+    city: TextField,
+    page: Page,
+    frames: u32,
     chips: [bool; 6],
     toasts: Toasts,
     grid: ArtGrid,
@@ -59,8 +77,20 @@ pub struct AppStory {
 impl AppStory {
     pub fn new(view: AppView) -> Self {
         let mut filled = TextField::new(2);
-        let keyboard = Keyboard::new();
+        let mut name = TextField::new(1);
+        let mut handle = TextField::new(2);
+        let mut city = TextField::new(3);
+        let mut keyboard = Keyboard::new();
         filled.set(&keyboard, "stake1u8a9...0x3f");
+        name.set(&keyboard, "Ada Lovelace");
+        handle.set(&keyboard, "ada.l");
+        city.set(&keyboard, "Bris");
+        if view == AppView::Form {
+            // The capture shows the handle being edited, in the face the canvas
+            // draws: `mq-bundle --assets` stages `assets/` beside the page.
+            keyboard.focus(2);
+            keyboard.input_font("Noto Sans", "assets/NotoSans-Bold.ttf");
+        }
         let mut toasts = Toasts::new();
         if view == AppView::Toasts {
             toasts.push("Copied the policy id", Tone::Success);
@@ -74,6 +104,11 @@ impl AppStory {
             keyboard,
             empty: TextField::new(1),
             filled,
+            name,
+            handle,
+            city,
+            page: Page::new(),
+            frames: 0,
             chips: [true, false, false, true, false, false],
             toasts,
             grid: ArtGrid::new(),
@@ -95,6 +130,7 @@ impl AppStory {
             AppView::List => vec2(PHONE_W, 844.0),
             AppView::ShellPhone => vec2(PHONE_W, 844.0),
             AppView::ShellDesk => vec2(1280.0, 800.0),
+            AppView::Form => vec2(PHONE_W, 844.0),
         }
     }
 
@@ -170,6 +206,112 @@ impl AppStory {
         }
     }
 
+    /// A form of fields and settings rows on a `Page`, scrolled so the field
+    /// being edited sits under the app bar: the state the page's input is
+    /// clipped to, with the field's error under it.
+    fn form(&mut self, p: &Painter, area: Rect, gesture: &Gesture, dt: f32) {
+        let insets = Insets {
+            top: 47.0,
+            bottom: 34.0,
+            ..Insets::default()
+        };
+        let layout = shell_layout(vec2(area.w, area.h), insets, false);
+        let shift = |r: Rect| Rect::new(r.x + area.x, r.y + area.y, r.w, r.h);
+        let c = p.theme.color;
+        let body = shift(layout.body);
+        let (lx, w) = (body.x + 16.0, body.w - 32.0);
+
+        // The story draws in window units, so the keyboard maps them directly:
+        // `u = 1`, no stage origin.
+        self.keyboard.begin_at(1.0, Vec2::ZERO);
+        self.keyboard.clip(body);
+        // The page learns its height as it draws once; place it where the
+        // capture wants it after that.
+        if self.frames < 2 {
+            self.page.set(110.0);
+        }
+        let input = ScrollInput::read(gesture.drag, Vec2::from(mouse_position()));
+        let (top, _) = self.page.begin(body, &input, None, dt);
+        let mut y = top;
+
+        with_clip(body, || {
+            let label = |text: &str, y: f32| {
+                p.text_in(
+                    text,
+                    Rect::new(lx, y, w, 18.0),
+                    p.size(TextSize::Sm),
+                    c.text_muted,
+                    Align::Start,
+                );
+            };
+            label("Name", y);
+            y += 22.0;
+            self.name.show(
+                p,
+                &mut self.keyboard,
+                Rect::new(lx, y, w, FIELD_H),
+                FieldKind::Text,
+                "Your name",
+            );
+            y += FIELD_H + 16.0;
+
+            label("Handle", y);
+            y += 22.0;
+            self.handle.show(
+                p,
+                &mut self.keyboard,
+                Rect::new(lx, y, w, FIELD_H),
+                FieldKind::Address,
+                "ada.l",
+            );
+            y += FIELD_H + 6.0;
+            p.text_in(
+                "A handle is lowercase, with a dot.",
+                Rect::new(lx, y, w, 16.0),
+                p.size(TextSize::Xs),
+                c.accent_red,
+                Align::Start,
+            );
+            y += 22.0;
+
+            label("Home city", y);
+            y += 22.0;
+            self.city.show(
+                p,
+                &mut self.keyboard,
+                Rect::new(lx, y, w, FIELD_H),
+                FieldKind::Search,
+                "Search a city",
+            );
+            y += FIELD_H + 24.0;
+
+            for i in 0..12 {
+                let (name, value) = SETTINGS[i % SETTINGS.len()];
+                let row = Rect::new(lx, y, w, 56.0);
+                p.text_in(
+                    name,
+                    row,
+                    p.size(TextSize::Md),
+                    c.text_primary,
+                    Align::Start,
+                );
+                p.text_in(value, row, p.size(TextSize::Sm), c.text_muted, Align::End);
+                draw_line(lx, row.bottom(), lx + w, row.bottom(), 1.0, c.border);
+                y += 56.0;
+            }
+        });
+
+        self.page.end(top, y);
+        self.keyboard.end();
+        self.frames += 1;
+
+        let _ = AppBar::new("Profile")
+            .subtitle("Step 1 of 3")
+            .leading(Leading::Back)
+            .raised((self.page.offset() / 24.0).min(1.0))
+            .show(p, shift(layout.bar), shift(layout.bar_row));
+    }
+
     pub fn draw(&mut self, p: &Painter, area: Rect, gesture: &Gesture, dt: f32) {
         let c = p.theme.color;
         let phone = Rect::new(area.x, area.y, PHONE_W.min(area.w), area.h.min(760.0));
@@ -178,6 +320,7 @@ impl AppStory {
             p.text_in(text, r, p.size(TextSize::Sm), c.text_muted, Align::Start);
         };
         match self.view {
+            AppView::Form => self.form(p, area, gesture, dt),
             AppView::ShellPhone | AppView::ShellDesk => self.shell(p, area, gesture, dt),
             AppView::Bar => {
                 let mut y = area.y;

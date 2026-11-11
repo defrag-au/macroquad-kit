@@ -96,7 +96,7 @@ pub const PLUGIN_JS: &str = macroquad_gamekit::web::APP_SHELL_JS;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 extern "C" fn app_shell_crate_version() -> u32 {
-    1
+    2
 }
 
 /// A colour as CSS reads it, for the page's own input to match the canvas.
@@ -136,6 +136,6 @@ mod tests {
     #[test]
     fn the_plugin_names_itself_as_the_handshake_does() {
         assert!(PLUGIN_JS.contains("name: 'app_shell'"));
-        assert!(PLUGIN_JS.contains("version: 1,"));
+        assert!(PLUGIN_JS.contains("version: 2,"));
     }
 }
