@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 1
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  check-and-test:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+          cache-on-failure: true
+
+      # The storybook's golden suite is its own job (`visual`): it needs a
+      # headless GL runtime, and a changed picture should fail under its own
+      # name rather than inside the functional suite.
+      - run: cargo check --workspace --exclude macroquad-storybook --all-targets
+      - run: cargo test --workspace --exclude macroquad-storybook --all-targets
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "clippy"
+          cache-on-failure: true
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # `cargo check` does not link, so a library that needs a miniquad JS plugin
+  # at link time can still be checked here. What this catches is a dependency
+  # that cannot build for wasm32 at all — at the crate that introduced it,
+  # rather than in a consumer a rev later. `--all-features` covers the `chain`,
+  # `audio` and `gamepads` gates, which native CI leaves off.
+  wasm-check:
+    name: WASM Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "wasm-check"
+          cache-on-failure: true
+
+      # The kit's half of the miniquad-linkability guard. `cardano-tx` keeps its
+      # own no-wasm-bindgen invariant in shared-crates; this one keeps the
+      # macroquad crates clear. `cargo check` would compile wasm-bindgen
+      # happily — resolution is what decides whether a miniquad host can link.
+      - name: Guard — the macroquad surfaces stay linkable under miniquad
+        run: cargo test -p macroquad-gamekit --test miniquad_linkable
+
+      # `--all-features` applies to the whole invocation, so the two crates that
+      # need it are checked on their own.
+      - name: Check the widgets and gamekit with every feature
+        run: |
+          cargo check --target wasm32-unknown-unknown \
+            -p macroquad-widgets --all-features
+          cargo check --target wasm32-unknown-unknown \
+            -p macroquad-gamekit --all-features
+
+      - name: Check the remaining wasm-compatible crates
+        run: |
+          cargo check --target wasm32-unknown-unknown \
+            -p macroquad-text \
+            -p macroquad-app \
+            -p macroquad-tui \
+            -p macroquad-cnft \
+            -p image-miniquad \
+            -p sprite-view \
+            -p scene-pane \
+            -p arcade-admin-quad \
+            -p macroquad-wallet-flow \
+            -p arcade-harness \
+            -p macroquad-storybook \
+            -p mq-flow-probe
+
+  # A capture is a review, and a golden makes it a test. One golden per story
+  # per platform and architecture: this checks
+  # `tests/goldens-x86_64/<slug>/linux.png`; the `macos.png` and aarch64 Linux
+  # sets are checked locally by the same test. Two threads run the two
+  # per-story sweeps together without putting four llvmpipe contexts on four
+  # cores.
+  visual:
+    name: Visual Goldens
+    # Pinned to the release the x86_64 goldens were blessed on: the renderer
+    # (Mesa) is part of the contract, and `ubuntu-latest` moves.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "visual"
+          cache-on-failure: true
+
+      - name: Install headless GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-6 libgl1 libglx-mesa0 libegl1 libgl1-mesa-dri
+
+      - name: Check the Linux goldens
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: cargo test -p macroquad-storybook --test visual -- --test-threads=2
+
+      - name: Upload the visual captures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-captures
+          path: target/tmp/visual
+          if-no-files-found: ignore
