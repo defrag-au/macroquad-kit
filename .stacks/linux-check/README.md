@@ -40,5 +40,11 @@ A bless rewrites every selected story's golden, so run it on a clean tree and
 read the diff: existing goldens should be byte-identical, and only a new story
 should appear.
 
+An attached `run` can print `failed to send signal … signal 28` (SIGWINCH) as
+the terminal resizes. It is harmless: the test summary is the end of the output,
+and a bless has written the files by then. For a detached run, `up -d` is
+allowed because the service is `restart = "no"`, and `container-compose logs`
+reads the result.
+
 The container writes into the repository through the mount. `.tmp/linux-check/`
 holds the cargo cache and the build; it is gitignored.
