@@ -75,6 +75,13 @@ jobs:
           shared-key: "wasm-check"
           cache-on-failure: true
 
+      # The kit's half of the miniquad-linkability guard. `cardano-tx` keeps its
+      # own no-wasm-bindgen invariant in shared-crates; this one keeps the
+      # macroquad crates clear. `cargo check` would compile wasm-bindgen
+      # happily — resolution is what decides whether a miniquad host can link.
+      - name: Guard — the macroquad surfaces stay linkable under miniquad
+        run: cargo test -p macroquad-gamekit --test miniquad_linkable
+
       # `--all-features` applies to the whole invocation, so the two crates that
       # need it are checked on their own.
       - name: Check the widgets and gamekit with every feature
