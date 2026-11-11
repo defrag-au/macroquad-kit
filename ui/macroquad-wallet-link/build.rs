@@ -1,12 +1,15 @@
 //! Stamp the app's plugin JS into `web/`, so the page loads the plugins the
 //! wasm was linked against: `wallet.js`, `evm.js` and `midnight.js`
-//! (wallet-miniquad), `platform.js` (miniquad-platform), `app.js`
-//! (macroquad-app's HTTP) and `discord-auth.js` (the session a Discord login
-//! hands back). `mq-bundle --web ui/macroquad-wallet-link/web` stages every
-//! `*.js` there. Generated, so `web/` is gitignored.
+//! (wallet-miniquad), `platform.js` (miniquad-platform), the app shell's page
+//! half as `gamekit-app-shell.js` (macroquad-gamekit's `PageScript::AppShell`)
+//! and `discord-auth.js` (the session a Discord login hands back).
+//! `mq-bundle --web ui/macroquad-wallet-link/web` stages every `*.js` there.
+//! Generated, so `web/` is gitignored.
 
 use std::fs;
 use std::path::Path;
+
+use macroquad_gamekit::web::{PageScript, stamp_scripts};
 
 fn main() {
     let web = Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
@@ -16,7 +19,16 @@ fn main() {
     fs::write(web.join("midnight.js"), wallet_miniquad::MIDNIGHT_PLUGIN_JS)
         .expect("write midnight.js");
     fs::write(web.join("platform.js"), miniquad_platform::PLUGIN_JS).expect("write platform.js");
-    fs::write(web.join("app.js"), macroquad_app::PLUGIN_JS).expect("write app.js");
+    stamp_scripts(&web, &[PageScript::AppShell]).expect("stamp the app shell page script");
+    // Before the app shell moved into the gamekit this script was stamped as
+    // `app.js`. `stamp_scripts` writes and never removes, and `mq-bundle`
+    // stages every `*.js` in `--web`, so a `web/` built before the move would
+    // carry both copies and the page would load the page script twice.
+    match fs::remove_file(web.join("app.js")) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => panic!("remove the superseded app.js: {e}"),
+    }
     fs::write(
         web.join("discord-auth.js"),
         discord_auth::miniquad::PLUGIN_JS,
@@ -34,7 +46,7 @@ fn main() {
         "../wallet-miniquad/js/evm.js",
         "../wallet-miniquad/js/midnight.js",
         "../miniquad-platform/js/platform.js",
-        "../macroquad-app/js/app.js",
+        "../../gaming/macroquad-gamekit/js/app-shell.js",
         "../../discord-auth/js/discord-auth.js",
     ] {
         println!("cargo:rerun-if-changed={js}");

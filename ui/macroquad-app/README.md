@@ -101,6 +101,12 @@ stamp_scripts(std::path::Path::new("web"), &[PageScript::AppShell])?;
 file itself. The bundle stages that directory with `--web`;
 `ui/macroquad-bundle/README.md` has the rest.
 
+Stamping only writes. If `web/` was built before the page script moved into the
+gamekit it still holds `app.js`, and the bundle stages every `*.js` in the
+directory — so the page would load the page script twice. Delete the old name in
+`build.rs` (or once by hand); `ui/macroquad-wallet-link/build.rs` is the worked
+example.
+
 ## Android
 
 The app lives in a library target for `mq-apk`, with `quad_main` exported from

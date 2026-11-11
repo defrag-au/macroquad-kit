@@ -159,6 +159,12 @@ impl PageScript {
 pub const APP_SHELL_JS: &str = include_str!("../js/app-shell.js");
 
 /// Write each page script into `dir`, as [`stamp`] does plugins.
+///
+/// Both writers only write. Renaming a script later leaves the old file in
+/// `dir`, and a bundler that stages every `*.js` there — `mq-bundle` does —
+/// then serves both copies. The client's `build.rs` owns the rename: delete the
+/// superseded name when it stamps, as `macroquad-wallet-link` does for
+/// `app.js` → `gamekit-app-shell.js`.
 pub fn stamp_scripts(dir: &Path, scripts: &[PageScript]) -> std::io::Result<Vec<PathBuf>> {
     std::fs::create_dir_all(dir)?;
     scripts

@@ -85,7 +85,7 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
 The dest holds `index.html`, `manifest.webmanifest`, the wasm, and the staged
 scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
 
-## The two things worth remembering
+## The three things worth remembering
 
 - **The JS comes from the versions the package links.** The plugin protocol is
   untyped and unversioned, so a gl.js from one miniquad beside a wasm built
@@ -93,3 +93,8 @@ scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
 - **`--allow-undefined` is required.** It is appended to the build, not left to
   the caller, because a build without it fails at link time in a way that reads
   like a missing page script.
+- **A renamed page script is not deleted for you.** `--web` is staged whole, so
+  a generated directory that still holds a script's old name is copied beside
+  the new one and the page loads both. The client's `build.rs` owns the rename:
+  delete the superseded file when it stamps, as `macroquad-wallet-link/build.rs`
+  does for `app.js` → `gamekit-app-shell.js`.
