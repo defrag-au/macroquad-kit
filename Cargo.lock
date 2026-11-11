@@ -60,7 +60,7 @@ dependencies = [
 [[package]]
 name = "arcade-core"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "serde",
 ]
@@ -82,7 +82,7 @@ dependencies = [
 [[package]]
 name = "arcade-room"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 
 [[package]]
 name = "arcade-room-quad"
@@ -202,7 +202,7 @@ dependencies = [
 [[package]]
 name = "cardano-assets"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "hex",
  "indexmap",
@@ -242,7 +242,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 [[package]]
 name = "chain-heartbeat"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "blake2",
  "hex",
@@ -256,7 +256,7 @@ dependencies = [
 [[package]]
 name = "chains"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "serde",
 ]
@@ -264,7 +264,7 @@ dependencies = [
 [[package]]
 name = "cnft-holdings"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "cardano-assets",
  "hex",
@@ -389,7 +389,7 @@ dependencies = [
 [[package]]
 name = "discord-auth"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "sapp-jsutils",
  "serde",
@@ -400,7 +400,7 @@ dependencies = [
 [[package]]
 name = "discord-miniquad"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "sapp-jsutils",
  "serde",
@@ -990,7 +990,7 @@ dependencies = [
 [[package]]
 name = "image-core"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 
 [[package]]
 name = "image-miniquad"
@@ -1365,7 +1365,7 @@ dependencies = [
 [[package]]
 name = "miniquad-platform"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "getrandom",
  "sapp-jsutils",
@@ -1631,7 +1631,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "ownership-client"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "serde",
  "serde_json",
@@ -1700,7 +1700,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "perf-probe"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 
 [[package]]
 name = "pin-project-lite"
@@ -2026,7 +2026,7 @@ dependencies = [
 [[package]]
 name = "scenegraph"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "fdsm",
  "fdsm-ttf-parser",
@@ -2040,7 +2040,7 @@ dependencies = [
 [[package]]
 name = "scenegraph-mq"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "macroquad",
  "scenegraph",
@@ -2049,7 +2049,7 @@ dependencies = [
 [[package]]
 name = "sceneinput"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "scenegraph",
  "thiserror 2.0.21",
@@ -2412,7 +2412,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "ui-flow"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "futures",
  "miniquad",
@@ -2429,7 +2429,7 @@ dependencies = [
 [[package]]
 name = "ui-flow-protocol"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "rmp-serde",
  "serde",
@@ -2440,7 +2440,7 @@ dependencies = [
 [[package]]
 name = "ui-theme"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "macroquad",
 ]
@@ -2551,7 +2551,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "wallet-link"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "serde",
 ]
@@ -2559,7 +2559,7 @@ dependencies = [
 [[package]]
 name = "wallet-link-flow"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "chains",
  "serde",
@@ -2571,7 +2571,7 @@ dependencies = [
 [[package]]
 name = "wallet-miniquad"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "miniquad-platform",
  "pallas-addresses",
@@ -2634,7 +2634,7 @@ dependencies = [
 [[package]]
 name = "wasm_safe_serde"
 version = "0.1.0"
-source = "git+https://github.com/defrag-au/shared-crates?rev=aa9fe4ab6813576345e9036a9aff2bc3793518e3#aa9fe4ab6813576345e9036a9aff2bc3793518e3"
+source = "git+https://github.com/defrag-au/shared-crates?rev=e1cf4dec7158557be593dc51af15e2fa28f29524#e1cf4dec7158557be593dc51af15e2fa28f29524"
 dependencies = [
  "serde",
  "serde_json",
