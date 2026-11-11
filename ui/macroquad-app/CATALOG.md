@@ -11,7 +11,7 @@ brings what `macroquad-widgets` deliberately refuses — routes, a real text fie
 the phone's keyboard, a long clipped grid and a page that scrolls. Stories are in
 `macroquad-storybook` under "app shell". MACROQUAD only: no wasm-bindgen.
 
-13 modules.
+14 modules.
 
 | module | what it is |
 |---|---|
@@ -24,6 +24,7 @@ the phone's keyboard, a long clipped grid and a page that scrolls. Stories are i
 | `input` | `TextField` — a single-line field the reader types into, with the phone's own keyboard: its autocorrect, its paste, its IME and its Search key |
 | `insets` | `Insets` — the parts of the screen the app must not put anything under: the notch and status bar, the home indicator, a rounded corner's cut, and the soft keyboard while it is open |
 | `layout` | `shell_layout` — the frame every screen of an app shares: the app bar at the top, the navigation (a bar along the bottom on a phone, a rail down the left on anything wider), and the body between them, all inside the safe area |
+| `list` | `List` — a scrolling column of fixed-height rows, of which only the rows in view are ever visited: a thousand settings rows cost a frame what a dozen does |
 | `load` | `Fetch` and `Load` — a request whose reply is read into the type a screen wants, and that request's whole life as a screen needs to know it: not asked yet, on its way, here, or failed with a reason to show |
 | `nav` | `bottom_nav` and `nav_rail` — the app's top-level destinations, always in reach: a bar along the bottom on a phone, a rail down the left on anything wider |
 | `page` | `Page` — a screen that scrolls as a whole and is laid out top to bottom: an asset's detail, a settings list, a market summary |

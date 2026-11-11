@@ -83,9 +83,9 @@ report.
 
 ## The web build
 
-`build.rs` stamps the wallet, EVM and platform plugin scripts into `web/`
-(gitignored), so the page loads the plugin the wasm was linked against. The
-bundler then stages every `*.js` there:
+`build.rs` stamps the wallet, EVM, platform and app-shell page scripts into
+`web/` (gitignored), so the page loads the plugin the wasm was linked against.
+The bundler then stages every `*.js` there:
 
 ```sh
 cargo run -q -p mq-bundle -- --package macroquad-storybook \

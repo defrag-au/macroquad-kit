@@ -60,8 +60,7 @@ fn storybook() -> &'static str {
 }
 
 fn goldens_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("tests/goldens-{}", std::env::consts::ARCH))
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/goldens-{}", std::env::consts::ARCH))
 }
 
 /// `tests/goldens-<arch>/<slug>/<os>.png`.

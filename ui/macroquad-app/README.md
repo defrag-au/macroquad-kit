@@ -22,13 +22,14 @@ the keyboard's top.
 
 ## Screens
 
+- A **long list** is `List`: fixed-height rows, virtualised, scrolled with a
+  thumb, and the host draws each row. `ArtGrid` is the same idea for square art
+  in a grid. There is **no layout engine and no row widget**: a row's contents
+  and its hit target are the host's, which is what keeps a settings screen and a
+  trait list from growing a flexbox.
 - A **detail or settings screen** that scrolls as a whole is `Page`: `begin`
   moves it and says where to lay out; `end` records where the layout finished,
   which is the scroll's end next frame.
-- There is **no list or row widget**. A list is `Page` plus the rows you lay out
-  and cull yourself; `ArtGrid` is for square art in a grid and does the
-  virtualising for you. This is deliberate: the crate has no layout engine, and
-  the widgets crate's charter keeps rows out until a second consumer needs one.
 - **Empty, loading and failed** states are `macroquad_widgets::Message`, driven
   from `Load`/`Fetch`. Do not draw your own paragraph of apology.
 - **Routing**: name your screens with a `Route`, parse and write the hash, poll
@@ -67,9 +68,10 @@ cargo run -p my-app -- --plan .tmp/plan.txt --size 390x844   # several states, o
 
 - `--size` is the window and the capture; the capture draws into its own target.
 - `--insets` is `top,right,bottom,left[,keyboard]`, in points.
-- The `.txt` beside the image is the second check. A capture is clean when it
-  says `Problems (0)`; `--fail-on-problems` is a storybook flag and does not
-  apply here.
+- The `.txt` beside the image is the second check. `--fail-on-problems` exits 2
+  when the report finds a problem (text off the surface, cut short, below 8 pt,
+  overlapping); `--allow off,cut,small,overlap` excludes a class, so a screen
+  that exists to show a cut passes `cut` and still fails on everything else.
 - `window_conf` must be `harness::Args::read().window_conf(conf)`, or a capture
   opens a window (and panics with no display). `examples/shell.rs` is the shape.
 
@@ -83,9 +85,17 @@ JetBrains Mono (both OFL) from `ui/macroquad-storybook/assets/`; copy the faces
 you want into your crate and load them with `load_font`, so the glyph gate can
 warm them.
 
-The page needs the shell's plugin: `build.rs` writes
-`macroquad_app::PLUGIN_JS` into `web/app.js`, and the bundle stages that
-directory with `--web`. `ui/macroquad-bundle/README.md` has the rest.
+The page needs the shell's plugin. `build.rs` can stamp it through the gamekit,
+which does not compile this crate (or its native HTTP stack) for the host:
+
+```rust
+use macroquad_gamekit::web::{PageScript, stamp_scripts};
+stamp_scripts(std::path::Path::new("web"), &[PageScript::AppShell])?;
+```
+
+`macroquad_app::PLUGIN_JS` is the same text, for a build script that writes the
+file itself. The bundle stages that directory with `--web`;
+`ui/macroquad-bundle/README.md` has the rest.
 
 ## Android
 

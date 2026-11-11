@@ -63,3 +63,5 @@ wallet-miniquad = { workspace = true }
 # was linked against.
 wallet-miniquad = { workspace = true }
 miniquad-platform = { workspace = true }
+# The app shell's page script (`PageScript::AppShell`), stamped the same way.
+macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }

@@ -201,6 +201,52 @@ pub enum Problem {
     Overlap { a: Line, b: Line },
 }
 
+/// The four classes of problem, by the name `--allow` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProblemKind {
+    Off,
+    Cut,
+    Small,
+    Overlap,
+}
+
+impl ProblemKind {
+    pub const ALL: [ProblemKind; 4] = [
+        ProblemKind::Off,
+        ProblemKind::Cut,
+        ProblemKind::Small,
+        ProblemKind::Overlap,
+    ];
+
+    /// The name `--allow` takes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Cut => "cut",
+            Self::Small => "small",
+            Self::Overlap => "overlap",
+        }
+    }
+
+    /// The kind `--allow` names, or `None` for something else.
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        Self::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+}
+
+impl Problem {
+    /// Which class this problem is, for `--allow`.
+    pub fn kind(&self) -> ProblemKind {
+        match self {
+            Self::Off { .. } => ProblemKind::Off,
+            Self::Cut { .. } => ProblemKind::Cut,
+            Self::Small { .. } => ProblemKind::Small,
+            Self::Overlap { .. } => ProblemKind::Overlap,
+        }
+    }
+}
+
 /// Text that can be seen: fully transparent lines are animation states.
 fn visible(l: &Line) -> bool {
     l.alpha > 0.05
@@ -419,6 +465,49 @@ mod tests {
         assert_eq!(screen.lines.len(), 1);
         assert_eq!(screen.lines[0].text, "inside");
         reset();
+    }
+
+    #[test]
+    fn every_problem_kind_round_trips_through_its_name() {
+        for kind in ProblemKind::ALL {
+            assert_eq!(ProblemKind::parse(kind.as_str()), Some(kind));
+        }
+        assert_eq!(ProblemKind::parse(" clipp "), None);
+        assert_eq!(ProblemKind::parse(""), None);
+    }
+
+    #[test]
+    fn a_problem_names_its_kind() {
+        let line = Line {
+            text: "x".to_owned(),
+            rect: Rect::new(0.0, 0.0, 1.0, 1.0),
+            size: 12.0,
+            alpha: 1.0,
+        };
+        let other = line.clone();
+        assert_eq!(Problem::Off { line }.kind(), ProblemKind::Off);
+        assert_eq!(
+            Problem::Cut {
+                line: other.clone()
+            }
+            .kind(),
+            ProblemKind::Cut
+        );
+        assert_eq!(
+            Problem::Small {
+                line: other.clone()
+            }
+            .kind(),
+            ProblemKind::Small
+        );
+        assert_eq!(
+            Problem::Overlap {
+                a: other.clone(),
+                b: other
+            }
+            .kind(),
+            ProblemKind::Overlap
+        );
     }
 
     #[test]

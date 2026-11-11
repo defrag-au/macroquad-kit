@@ -2342,13 +2342,7 @@ fn args() -> Args {
 }
 
 fn allowed(allow: &[String], problem: &harness::report::Problem) -> bool {
-    let kind = match problem {
-        harness::report::Problem::Off { .. } => "off",
-        harness::report::Problem::Cut { .. } => "cut",
-        harness::report::Problem::Small { .. } => "small",
-        harness::report::Problem::Overlap { .. } => "overlap",
-    };
-    allow.iter().any(|a| a == kind)
+    allow.iter().any(|a| a == problem.kind().as_str())
 }
 
 #[macroquad::main(window_conf)]

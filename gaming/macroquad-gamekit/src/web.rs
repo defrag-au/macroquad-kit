@@ -1,4 +1,4 @@
-//! `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone), shipped with the kit and stamped by a game's `build.rs`.
+//! `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone, the app shell's page half), shipped with the kit and stamped by a client's `build.rs`.
 //!
 //! macroquad reaches the browser only through miniquad's plugin protocol: the
 //! wasm imports plain functions, and a JS file loaded before `load(...)`
@@ -125,6 +125,9 @@ pub enum PageScript {
     /// Fullscreen on a phone's or tablet's first tap, where the browser
     /// allows it (`js/fullscreen.js` says where it does not).
     Fullscreen,
+    /// `macroquad-app`'s page half: the real `<input>` over a text field, the
+    /// safe-area insets and the history the router reads (`js/app-shell.js`).
+    AppShell,
 }
 
 impl PageScript {
@@ -132,15 +135,28 @@ impl PageScript {
     pub fn file_name(self) -> &'static str {
         match self {
             PageScript::Fullscreen => "gamekit-fullscreen.js",
+            PageScript::AppShell => "gamekit-app-shell.js",
         }
     }
 
     pub fn js(self) -> &'static str {
         match self {
             PageScript::Fullscreen => include_str!("../js/fullscreen.js"),
+            PageScript::AppShell => APP_SHELL_JS,
         }
     }
 }
+
+/// The app shell's page script, re-exported by `macroquad-app` as its
+/// `PLUGIN_JS`. Exposed here so a client's `build.rs` can stamp it with
+/// `macroquad-gamekit` alone, without compiling `macroquad-app` (and its
+/// native HTTP stack) for the host:
+///
+/// ```ignore
+/// use macroquad_gamekit::web::{PageScript, stamp_scripts};
+/// stamp_scripts(Path::new("web"), &[PageScript::AppShell])?;
+/// ```
+pub const APP_SHELL_JS: &str = include_str!("../js/app-shell.js");
 
 /// Write each page script into `dir`, as [`stamp`] does plugins.
 pub fn stamp_scripts(dir: &Path, scripts: &[PageScript]) -> std::io::Result<Vec<PathBuf>> {
@@ -186,6 +202,13 @@ mod tests {
     #[test]
     fn the_audio_plugin_is_stamped_verbatim() {
         assert_eq!(Plugin::Audio.js(), Plugin::Audio.source());
+    }
+
+    #[test]
+    fn the_app_shell_page_script_is_the_plugin_the_crate_expects() {
+        let js = PageScript::AppShell.js();
+        assert!(js.contains("name: 'app_shell'"));
+        assert!(js.contains("version: 1,"));
     }
 
     #[test]

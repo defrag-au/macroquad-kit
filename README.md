@@ -137,7 +137,9 @@ It also carries:
 
 - **`tools/mq-apk`** — the same, over `macroquad-apk`.
 - **`build.rs`** — stamp the plugins the client uses into `web/`. The app shell
-  is `macroquad_app::PLUGIN_JS`; the gamekit's are stamped with
+  is `PageScript::AppShell` through `macroquad_gamekit::web::stamp_scripts`, so
+  the build script does not compile `macroquad-app` for the host; the gamekit's
+  are `Plugin::Audio`, `Plugin::Gamepads` and so on, through
   `macroquad_gamekit::web::stamp`.
 - **fonts** — the kit ships none for consumers. Its examples use Noto Sans Bold
   and JetBrains Mono (both OFL) from `ui/macroquad-storybook/assets/`; copy the

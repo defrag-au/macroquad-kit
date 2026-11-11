@@ -18,16 +18,17 @@
 use macroquad::prelude::*;
 use macroquad_app::{
     AppBar, ArtGrid, BarAction, BarHit, Chip, FIELD_H, FieldKind, Glyph, GridSpec, Insets,
-    Keyboard, Leading, NavItem, NavPlace, Route, Router, TextField, Toasts, Tone, bottom_nav,
-    chip_row, nav_rail, shell_layout,
+    Keyboard, Leading, List, ListSpec, NavItem, NavPlace, Page, Route, Router, TextField, Toasts,
+    Tone, bottom_nav, chip_row, nav_rail, shell_layout,
 };
-use macroquad_gamekit::{Backdrop, Frame, Game, Stage, harness};
+use macroquad_gamekit::{Backdrop, Frame, Game, Stage, clip::with_clip, harness};
 use macroquad_widgets::{
     Align, Line, Painter, ScrollInput, Theme, fill_rounded, stroke_rounded, theme::with_alpha,
 };
 use ui_theme::TextSize;
 
 const COUNT: usize = 2000;
+const TRAITS: usize = 240;
 const TABS: [(Glyph, &str); 4] = [
     (Glyph::Grid, "Browse"),
     (Glyph::Dots, "Traits"),
@@ -79,6 +80,23 @@ fn swatch(n: usize) -> Color {
     Color::new(rgb(0.0), rgb(2.0 / 3.0), rgb(1.0 / 3.0), 1.0)
 }
 
+/// The detail's paragraphs, short enough for a phone's width.
+const ABOUT: [&str; 5] = [
+    "Every swatch is generated from its number.",
+    "So the same number is the same colour on",
+    "every screen. The hue turns by the golden",
+    "angle, which keeps neighbours apart.",
+    "The filter chips switch warm and cool.",
+];
+
+/// One trait row: a name and the share of the collection that holds it.
+fn trait_row(i: usize) -> (String, String) {
+    const NAMES: [&str; 6] = ["Warm", "Cool", "Even", "Odd", "Bright", "Deep"];
+    let name = format!("{} · {:02}", NAMES[i % NAMES.len()], i + 1);
+    let value = format!("{}%", (i * 37) % 100);
+    (name, value)
+}
+
 fn warm(n: usize) -> bool {
     let h = hue(n);
     !(0.25..0.75).contains(&h)
@@ -94,6 +112,8 @@ struct Demo {
     filters: [bool; 4],
     shown: Vec<usize>,
     grid: ArtGrid,
+    list: List,
+    page: Page,
     toasts: Toasts,
     insets: Insets,
 }
@@ -110,6 +130,8 @@ impl Demo {
             filters: [false; 4],
             shown: Vec::new(),
             grid: ArtGrid::new(),
+            list: List::new(),
+            page: Page::new(),
             toasts: Toasts::new(),
             insets: Insets::read(),
         };
@@ -206,33 +228,140 @@ impl Demo {
         }
         if let Some(i) = opened {
             let n = self.shown[i];
+            self.page.scroll_home();
             self.router.push(Screen::Item(n));
         }
     }
 
-    fn detail(&self, frame: &Frame, body: Rect, gutter: f32, n: usize) {
+    /// The traits screen: one fixed-height row per trait, virtualised by `List`.
+    fn traits(&mut self, frame: &Frame, body: Rect, gutter: f32, tap: Option<Vec2>) {
+        let spec = ListSpec {
+            header: 34.0,
+            ..ListSpec::default()
+        };
+        let input = ScrollInput::read(frame.input.gesture.drag, frame.pointer());
+        let geo = self.list.update(body, &input, TRAITS, spec, frame.dt);
+        let tap = self.list.filter_tap(tap);
+        let p = self.painter(frame, None);
+        let c = p.theme.color;
+        let header = self.list.header(body, spec);
+        let heading = Rect::new(
+            header.x + gutter,
+            header.y,
+            header.w - gutter * 2.0,
+            header.h,
+        );
+        with_clip(body, || {
+            let count = format!("{TRAITS} traits");
+            p.text_in(
+                &count,
+                heading,
+                p.size(TextSize::Sm),
+                c.text_muted,
+                Align::Start,
+            );
+        });
+        self.list.draw(body, &geo, TRAITS, c.border, |i, r| {
+            let row = Rect::new(r.x + gutter, r.y, r.w - gutter * 2.0, r.h);
+            let (name, value) = trait_row(i);
+            p.text_in(
+                &name,
+                row,
+                p.size(TextSize::Md),
+                c.text_primary,
+                Align::Start,
+            );
+            p.text_in(&value, row, p.size(TextSize::Sm), c.text_muted, Align::End);
+            draw_line(
+                row.x,
+                row.bottom(),
+                row.right(),
+                row.bottom(),
+                1.0,
+                c.border,
+            );
+        });
+        if let Some(i) = self.list.hit(body, &geo, TRAITS, tap) {
+            self.page.scroll_home();
+            self.router.push(Screen::Item(i % COUNT));
+        }
+    }
+
+    /// A detail screen that scrolls as a whole: `Page` moves it and records
+    /// how tall the layout came to.
+    fn detail(&mut self, frame: &Frame, body: Rect, gutter: f32, tap: Option<Vec2>, n: usize) {
+        let input = ScrollInput::read(frame.input.gesture.drag, frame.pointer());
+        let (mut y, _tap) = self.page.begin(body, &input, tap, frame.dt);
+        let top = y;
         let p = self.painter(frame, None);
         let c = p.theme.color;
         let w = (body.w - gutter * 2.0).min(560.0);
         let x = body.x + (body.w - w) * 0.5;
-        let art = Rect::new(x, body.y + 16.0, w, w.min(body.h * 0.6));
-        fill_rounded(art, 18.0, swatch(n));
-        let facts = Rect::new(x, art.bottom() + 16.0, w, 64.0);
-        let title = format!("Swatch #{n}");
-        let sub = format!(
-            "hue {:.3} · {}",
-            hue(n),
-            if warm(n) { "warm" } else { "cool" }
-        );
-        p.stack_in(
-            &[
-                Line::new(&title, p.size(TextSize::Xl3), c.text_primary),
-                Line::new(&sub, p.size(TextSize::Md), c.text_muted).mono(),
-            ],
-            facts,
-            Align::Start,
-            12.0,
-        );
+        with_clip(body, || {
+            let art = Rect::new(x, y, w, w.min(body.h * 0.5));
+            fill_rounded(art, 18.0, swatch(n));
+            y = art.bottom() + 16.0;
+            let facts = Rect::new(x, y, w, 64.0);
+            let title = format!("Swatch #{n}");
+            let sub = format!(
+                "hue {:.3} · {}",
+                hue(n),
+                if warm(n) { "warm" } else { "cool" }
+            );
+            p.stack_in(
+                &[
+                    Line::new(&title, p.size(TextSize::Xl3), c.text_primary),
+                    Line::new(&sub, p.size(TextSize::Md), c.text_muted).mono(),
+                ],
+                facts,
+                Align::Start,
+                12.0,
+            );
+            y = facts.bottom() + 20.0;
+            for line in ABOUT {
+                let h = 20.0;
+                p.text_in(
+                    line,
+                    Rect::new(x, y, w, h),
+                    p.size(TextSize::Md),
+                    c.text_muted,
+                    Align::Start,
+                );
+                y += h;
+            }
+            y += 12.0;
+            for i in 0..12 {
+                let row = Rect::new(x, y, w, 52.0);
+                let (name, value) = trait_row(n * 12 + i);
+                p.text_in(
+                    &name,
+                    row,
+                    p.size(TextSize::Md),
+                    c.text_primary,
+                    Align::Start,
+                );
+                p.text_in(&value, row, p.size(TextSize::Sm), c.text_muted, Align::End);
+                draw_line(
+                    row.x,
+                    row.bottom(),
+                    row.right(),
+                    row.bottom(),
+                    1.0,
+                    c.border,
+                );
+                y += 52.0;
+            }
+        });
+        self.page.end(top, y);
+    }
+
+    /// A tab tapped twice goes back to the top of its own scroller.
+    fn tab_top(&mut self, tab: usize) {
+        match tab {
+            0 => self.grid.to_top(),
+            1 => self.list.to_top(),
+            _ => {}
+        }
     }
 }
 
@@ -308,6 +437,7 @@ impl Game for Demo {
         self.keyboard.begin(frame);
         match screen {
             Screen::Tab(0) => self.browse(frame, layout.body, layout.gutter, body_tap),
+            Screen::Tab(1) => self.traits(frame, layout.body, layout.gutter, body_tap),
             Screen::Tab(t) => {
                 let p = self.painter(frame, None);
                 let note = format!("{} would be here.", TABS[t].1);
@@ -319,7 +449,7 @@ impl Game for Demo {
                     Align::Center,
                 );
             }
-            Screen::Item(n) => self.detail(frame, layout.body, layout.gutter, n),
+            Screen::Item(n) => self.detail(frame, layout.body, layout.gutter, body_tap, n),
         }
         self.keyboard.end();
 
@@ -342,6 +472,8 @@ impl Game for Demo {
         };
         let raised = match screen {
             Screen::Tab(0) => (self.grid.scroll().offset() / 24.0).min(1.0),
+            Screen::Tab(1) => (self.list.scroll().offset() / 24.0).min(1.0),
+            Screen::Item(_) => (self.page.offset() / 24.0).min(1.0),
             _ => 0.0,
         };
         let bar = AppBar::new(&title)
@@ -378,8 +510,11 @@ impl Game for Demo {
         }
         match nav {
             Some(2) => self.toasts.push("Sell needs a wallet first", Tone::Warning),
-            Some(t) if Screen::Tab(t) == screen => self.grid.to_top(),
-            Some(t) => self.router.replace(Screen::Tab(t)),
+            Some(t) if Screen::Tab(t) == screen => self.tab_top(t),
+            Some(t) => {
+                self.tab_top(t);
+                self.router.replace(Screen::Tab(t));
+            }
             None => {}
         }
     }

@@ -11,6 +11,7 @@
 //!      [--px 3]                                      # at 3 pixels a unit, whatever the display
 //!      [--hover N | --drag N | --longpress N | --rclick N]  # with a scripted pointer
 //!      [--keys "10:Up,20-40:Right"]                  # with scripted keys, by frame
+//!      [--fail-on-problems [--allow off,cut,small,overlap]]  # and fail on text problems
 //! game --plan plan.txt                               # many conditions and captures, one launch
 //! game --soak 20                                     # the game's own soak loop
 //! game --sheet sheet.png                             # the game's own sheet of faces
@@ -322,6 +323,13 @@ pub struct Args {
     /// `--profile`: time each frame's scopes ([`crate::profile`]) and add
     /// where the time went to a capture's report.
     pub profile: bool,
+    /// `--fail-on-problems`: exit 2 when a capture's text report finds a
+    /// problem.
+    pub fail_on_problems: bool,
+    /// `--allow off,cut,small,overlap`: problem kinds `--fail-on-problems`
+    /// ignores. A screen that exists to show a cut passes `cut` and still
+    /// fails on everything else.
+    pub allow: Vec<report::ProblemKind>,
     /// `--keys "10:Up,20-40:Right"`: keys the loop presses for the game, by
     /// frame, merged into [`Frame::input`](crate::Frame::input) so the game
     /// cannot tell them from a player's. See [`KeyScript`].
@@ -515,6 +523,23 @@ impl Args {
             }),
             frame_log: argv.iter().any(|a| a == "--frame-log"),
             profile: argv.iter().any(|a| a == "--profile"),
+            fail_on_problems: argv.iter().any(|a| a == "--fail-on-problems"),
+            allow: flag_in(argv, "--allow")
+                .map(|list| {
+                    list.split(',')
+                        .map(str::trim)
+                        .filter(|kind| !kind.is_empty())
+                        .map(|kind| {
+                            report::ProblemKind::parse(kind).unwrap_or_else(|| {
+                                eprintln!(
+                                    "--allow {kind}: unknown problem kind; use off, cut, small or overlap"
+                                );
+                                std::process::exit(2)
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             keys: flag_in(argv, "--keys")
                 .map(|s| {
                     KeyScript::parse_all(&s).unwrap_or_else(|e| {
@@ -541,6 +566,17 @@ impl Args {
                 }
             }),
         }
+    }
+
+    /// The text problems a capture reported, less the kinds `--allow` names.
+    pub fn capture_problems(&self) -> Vec<report::Problem> {
+        let (screen, bakes) = report::surfaces();
+        let mut found = report::problems(&screen);
+        for face in &bakes {
+            found.extend(report::problems(face));
+        }
+        found.retain(|problem| !self.allow.contains(&problem.kind()));
+        found
     }
 
     /// The pixels per design unit a frame is drawn at: `--px` while
@@ -1962,6 +1998,36 @@ mod tests {
         let text = report::render("out.png", "seed 1");
         assert!(text.contains("## Problems (0)"), "{text}");
         assert!(text.contains("\"Shredder\""), "{text}");
+        report::reset();
+    }
+
+    #[test]
+    fn fail_on_problems_parses_and_allow_is_typed() {
+        let argv: Vec<String> = "game --shot a.png --fail-on-problems --allow cut,off"
+            .split(' ')
+            .map(String::from)
+            .collect();
+        let args = Args::parse(&argv);
+        assert!(args.fail_on_problems);
+        assert_eq!(
+            args.allow,
+            vec![report::ProblemKind::Cut, report::ProblemKind::Off]
+        );
+    }
+
+    #[test]
+    fn capture_problems_leaves_out_what_allow_names() {
+        report::reset();
+        report::enable();
+        report::begin_screen(vec2(100.0, 100.0));
+        report::line("wide…", Rect::new(10.0, 10.0, 200.0, 12.0), 12.0, 1.0);
+        let mut args = Args {
+            fail_on_problems: true,
+            ..Args::default()
+        };
+        assert_eq!(args.capture_problems().len(), 2, "cut and off the surface");
+        args.allow = vec![report::ProblemKind::Cut, report::ProblemKind::Off];
+        assert!(args.capture_problems().is_empty());
         report::reset();
     }
 
