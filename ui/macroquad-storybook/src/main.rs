@@ -1114,6 +1114,7 @@ fn stories(sample_icon: Option<Texture2D>) -> Vec<Story> {
         Story::app("app · chips", AppView::Chips),
         Story::app("app · toasts", AppView::Toasts),
         Story::app("app · grid", AppView::Grid),
+        Story::app("app · list", AppView::List),
         Story::app("shell · phone", AppView::ShellPhone),
         Story::app("shell · desk", AppView::ShellDesk),
         // "page · …" so `--story` finds these rather than another category's.

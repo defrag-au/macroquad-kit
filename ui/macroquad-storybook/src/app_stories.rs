@@ -1,7 +1,7 @@
 //! Stories for `macroquad-app`, the app shell: the app bar, the navigation,
-//! the text field, chips, toasts and the virtualised grid, each at a phone's
-//! width (and the rail at a desk's), so a change to one is reviewed by looking
-//! at it.
+//! the text field, chips, toasts, the virtualised grid and list, each at a
+//! phone's width (and the rail at a desk's), so a change to one is reviewed by
+//! looking at it.
 //!
 //! The grid's cards are generated swatches, numbered: the grid is geometry and
 //! a scroll, and these stories are about that, not about any collection.
@@ -10,9 +10,10 @@
 use macroquad::prelude::*;
 use macroquad_app::{
     AppBar, ArtGrid, BarAction, Chip, FIELD_H, FieldKind, Glyph, GridSpec, Insets, Keyboard,
-    Leading, NavItem, NavPlace, TextField, Toasts, Tone, bottom_nav, chip_row, nav_rail,
-    shell_layout,
+    Leading, List, ListSpec, NavItem, NavPlace, TextField, Toasts, Tone, bottom_nav, chip_row,
+    nav_rail, shell_layout,
 };
+use macroquad_gamekit::clip::with_clip;
 use macroquad_widgets::{
     Align, Gesture, Painter, ScrollInput, TextSize, fill_rounded, stroke_rounded,
 };
@@ -35,6 +36,8 @@ pub enum AppView {
     Toasts,
     /// Two thousand cards, of which only those in view are drawn.
     Grid,
+    /// Two hundred rows, of which only those in view are drawn.
+    List,
     /// The whole shell at a phone's size: the bottom bar and phone insets.
     ShellPhone,
     /// The whole shell at a desk's size: the rail and no insets.
@@ -49,6 +52,7 @@ pub struct AppStory {
     chips: [bool; 6],
     toasts: Toasts,
     grid: ArtGrid,
+    list: List,
     last: String,
 }
 
@@ -73,6 +77,7 @@ impl AppStory {
             chips: [true, false, false, true, false, false],
             toasts,
             grid: ArtGrid::new(),
+            list: List::new(),
             last: String::new(),
         }
     }
@@ -87,6 +92,7 @@ impl AppStory {
             AppView::Chips => vec2(PHONE_W, 240.0),
             AppView::Toasts => vec2(PHONE_W, 320.0),
             AppView::Grid => vec2(PHONE_W, 844.0),
+            AppView::List => vec2(PHONE_W, 844.0),
             AppView::ShellPhone => vec2(PHONE_W, 844.0),
             AppView::ShellDesk => vec2(1280.0, 800.0),
         }
@@ -332,6 +338,55 @@ impl AppStory {
                 });
                 let note = format!(
                     "{} of {count} cards drawn this frame",
+                    shown.end - shown.start
+                );
+                label(&note, phone.bottom() + 8.0);
+            }
+            AppView::List => {
+                stroke_rounded(phone, 0.0, 1.0, c.border);
+                let count = 240;
+                let spec = ListSpec {
+                    header: 34.0,
+                    ..ListSpec::default()
+                };
+                let input = ScrollInput::read(gesture.drag, Vec2::from(mouse_position()));
+                let geo = self.list.update(phone, &input, count, spec, dt);
+                let header = self.list.header(phone, spec);
+                let heading = Rect::new(header.x + 16.0, header.y, header.w - 32.0, header.h);
+                with_clip(phone, || {
+                    let title = format!("{count} traits");
+                    p.text_in(
+                        &title,
+                        heading,
+                        p.size(TextSize::Sm),
+                        c.text_muted,
+                        Align::Start,
+                    );
+                });
+                self.list.draw(phone, &geo, count, c.text_muted, |i, r| {
+                    let row = Rect::new(r.x + 16.0, r.y, r.w - 32.0, r.h);
+                    let name = format!("Trait · {:02}", i + 1);
+                    let value = format!("{}%", (i * 37) % 100);
+                    p.text_in(
+                        &name,
+                        row,
+                        p.size(TextSize::Md),
+                        c.text_primary,
+                        Align::Start,
+                    );
+                    p.text_in(&value, row, p.size(TextSize::Sm), c.text_muted, Align::End);
+                    draw_line(
+                        row.x,
+                        row.bottom(),
+                        row.right(),
+                        row.bottom(),
+                        1.0,
+                        c.border,
+                    );
+                });
+                let shown = self.list.visible(phone, &geo, count, 0);
+                let note = format!(
+                    "{} of {count} rows drawn this frame",
                     shown.end - shown.start
                 );
                 label(&note, phone.bottom() + 8.0);

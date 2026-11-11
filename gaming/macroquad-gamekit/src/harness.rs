@@ -985,8 +985,11 @@ pub fn golden_path(dir: &str) -> PathBuf {
 }
 
 /// `UPDATE_GOLDENS=1`: write the golden instead of comparing against it.
+///
+/// An empty value counts as unset: a workflow that sets the variable
+/// unconditionally (to `1` or to nothing) must still check by default.
 pub fn update_goldens() -> bool {
-    std::env::var_os("UPDATE_GOLDENS").is_some()
+    std::env::var_os("UPDATE_GOLDENS").is_some_and(|value| !value.is_empty())
 }
 
 /// How a capture compares with its golden.

@@ -116,7 +116,7 @@ fn selected() -> Vec<(String, Option<f64>)> {
 
 #[test]
 fn every_selected_story_has_a_golden() {
-    if std::env::var_os("UPDATE_GOLDENS").is_some() {
+    if macroquad_gamekit::harness::update_goldens() {
         return;
     }
     let missing: Vec<_> = selected()

@@ -76,10 +76,12 @@ UPDATE_GOLDENS=1 cargo test -p macroquad-storybook --test visual
 ```
 
 That writes the current machine's set — arm64 on Apple Silicon, x86_64 on Intel.
-The x86_64 Linux set is the CI runner's: take it from the `visual-captures`
-artifact (or an Ubuntu 24.04 amd64 container), not from a bless on an Apple
-Silicon machine. A bless silences the picture check; it cannot silence the text
-report.
+The x86_64 Linux set is the CI runner's, because its Mesa is the contract: run
+the `Visual Goldens` workflow with `bless_goldens` and download the
+`goldens-x86_64` artefact, then replace the set (a bless writes all of it, so
+do not merge). The aarch64 Linux set comes from `.stacks/linux-check`; its
+README has the commands. A bless silences the picture check; it cannot silence
+the text report.
 
 ## The web build
 
