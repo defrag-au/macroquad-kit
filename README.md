@@ -21,13 +21,14 @@ ping-ponging between the two repositories.
 
 ## Build and test
 
-The toolchain comes from the flake. In an interactive shell, `direnv allow .`
-once, then `cargo` is on `PATH`. In an agent shell, use the sibling devshell:
+The toolchain comes from the flake. Run `direnv allow .` once, then `cargo` is on
+`PATH` in an interactive shell. A shell an editor or an agent spawned sources no
+rc file, so reach the same devshell explicitly:
 
 ```sh
-direnv exec ../shared-crates cargo test --workspace
-direnv exec ../shared-crates cargo clippy --workspace --all-targets -- -D warnings
-direnv exec ../shared-crates cargo check --target wasm32-unknown-unknown -p macroquad-widgets --all-features
+direnv exec . cargo test --workspace
+direnv exec . cargo clippy --workspace --all-targets -- -D warnings
+direnv exec . cargo check --target wasm32-unknown-unknown -p macroquad-widgets --all-features
 ```
 
 A minimal app and game ship as examples:
