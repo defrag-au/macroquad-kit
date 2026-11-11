@@ -1,0 +1,127 @@
+[workspace]
+members = [
+    "gaming/arcade-admin-quad",
+    "gaming/arcade-harness",
+    "gaming/arcade-room-quad",
+    "gaming/macroquad-gamekit",
+    "gaming/sprite-view",
+    "graphics/scene-pane",
+    "ui/image-miniquad",
+    "ui/macroquad-apk",
+    "ui/macroquad-app",
+    "ui/macroquad-bundle",
+    "ui/macroquad-cnft",
+    "ui/macroquad-storybook",
+    "ui/macroquad-text",
+    "ui/macroquad-tui",
+    "ui/macroquad-wallet-flow",
+    "ui/macroquad-wallet-link",
+    "ui/macroquad-widgets",
+    "examples/mq-flow-probe",
+    "tools/mq-apk",
+    "tools/mq-bundle",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# Inherited by the kit's crates so a consumer on an older rustc gets cargo's
+# clear "requires rustc 1.88" rather than an error deep in a dependency:
+# let-chains and `as_chunks` are 1.88, fontdue 0.9 needs 1.87.
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/defrag-au/macroquad-kit"
+authors = ["Damon Oehlman <damon@defrag.au>"]
+
+[workspace.dependencies]
+serde = { version = "1.0.217" }
+serde_json = { version = "1.0.134" }
+# Hierarchical state machines: plain sync `handle(&event)`, no_std, no deps
+# beyond its own macro crate, so it is safe under macroquad.
+statig = "0.4.1"
+
+# ── Path deps within the kit ───────────────────────────────────────────────
+# The kit is one repo; these names are unchanged from `shared-crates` so a
+# consumer only changes the git URL, never a `use` path.
+arcade-admin-quad = { path = "gaming/arcade-admin-quad" }
+macroquad-app = { path = "ui/macroquad-app" }
+macroquad-apk = { path = "ui/macroquad-apk" }
+macroquad-bundle = { path = "ui/macroquad-bundle" }
+macroquad-cnft = { path = "ui/macroquad-cnft" }
+macroquad-gamekit = { path = "gaming/macroquad-gamekit" }
+macroquad-text = { path = "ui/macroquad-text" }
+macroquad-wallet-flow = { path = "ui/macroquad-wallet-flow" }
+macroquad-widgets = { path = "ui/macroquad-widgets" }
+
+# ── The pure core, consumed from `shared-crates` ──────────────────────────
+# One rev, shared by every entry below and kept in step with each consuming
+# repo's own `shared-crates` pin. `aa9fe4ab` is the last pushed `main`; bump
+# this after the shared-crates extraction commit is pushed.
+ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+chains = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+cnft-holdings = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+image-core = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+miniquad-platform = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+wallet-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+discord-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+wallet-link-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+# The `chain` widgets' only dependency, and off by default in the widgets.
+chain-heartbeat = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3", default-features = false }
+discord-auth = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+arcade-core = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+arcade-room = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+scenegraph = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+scenegraph-mq = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+sceneinput = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3" }
+# `mq-flow-probe`'s transport. Default features off: the web-sys transport
+# pulls wasm-bindgen, which miniquad cannot host.
+ui-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "aa9fe4ab6813576345e9036a9aff2bc3793518e3", default-features = false }
+
+# macroquad's glyph-atlas packing fix (upstream 8d602d3, "text: avoid spurious
+# font atlas growth"), which landed after 0.4.16. A glyph landing within 2 px of
+# a row's end doubled the whole atlas, at random: one solada board run in twelve
+# reached an 8192² atlas (256 MB). The rev is 0.4.16 plus a docs change plus the
+# fix, nothing else.
+#
+# A [patch] only applies in the workspace that builds, so every consumer of the
+# kit carries this line too — cnft.dev-workers, augminted-bots and
+# tile5-macroquad. `mq-bundle` refuses to stage a client without it.
+# Drop it, here and in each consumer, once a release after 0.4.16 is out.
+[patch.crates-io]
+macroquad = { git = "https://github.com/not-fl3/macroquad", rev = "8d602d3f8ebb8a3a582ee15d92983bbb81ee3ef6" }
+# miniquad's `Conf::headless` (fork `defrag-au/miniquad`, branch
+# `damon-headless-rendering`): a capture runs with no window at all. macOS
+# (NSOpenGLContext) and Linux (an EGL pbuffer on the surfaceless platform) are
+# true offscreen paths; the other desktop backends fall back to a window they
+# never show. The kit sets it on a capture, so this workspace has to link the
+# same miniquad.
+#
+# Pinned to the branch's tip, tagged `headless-2026-11` in the fork; not in a
+# miniquad release yet.
+miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "59178c9744c6881e8d600d787e5a4284ab5ccbdc" }
+
+# Local development: uncomment the WHOLE block to consume the sibling
+# `shared-crates` checkout instead of the pinned rev. Toggle it as a unit — a
+# partial block leaves one crate on the git rev and another on the working
+# tree, and the mismatch is a compile error somewhere unrelated.
+#
+# [patch."https://github.com/defrag-au/shared-crates"]
+# ui-theme = { path = "../shared-crates/ui/ui-theme" }
+# chains = { path = "../shared-crates/chains" }
+# perf-probe = { path = "../shared-crates/perf-probe" }
+# cnft-holdings = { path = "../shared-crates/cnft-holdings" }
+# image-core = { path = "../shared-crates/ui/image-core" }
+# miniquad-platform = { path = "../shared-crates/ui/miniquad-platform" }
+# wallet-miniquad = { path = "../shared-crates/ui/wallet-miniquad" }
+# discord-miniquad = { path = "../shared-crates/ui/discord-miniquad" }
+# wallet-link-flow = { path = "../shared-crates/services/wallet-link-flow" }
+# chain-heartbeat = { path = "../shared-crates/chain/chain-heartbeat" }
+# discord-auth = { path = "../shared-crates/discord-auth" }
+# arcade-core = { path = "../shared-crates/gaming/arcade-core" }
+# arcade-room = { path = "../shared-crates/gaming/arcade-room" }
+# scenegraph = { path = "../shared-crates/graphics/scenegraph" }
+# scenegraph-mq = { path = "../shared-crates/graphics/scenegraph-mq" }
+# sceneinput = { path = "../shared-crates/graphics/sceneinput" }
+# ui-flow = { path = "../shared-crates/ui/ui-flow" }
