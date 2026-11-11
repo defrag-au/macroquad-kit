@@ -33,6 +33,45 @@ cargo run -q -p mq-apk -- --package <android.package> --library <lib_name> \
 | `--out` | defaults to `<target>/android/<package>.apk` |
 | `--dry-run` | resolve everything and print every step; runs nothing and needs no SDK |
 
+## The app crate
+
+The package must hold the app in a **library** target. `macroquad-apk` runs
+`cargo rustc --lib --crate-type cdylib`, and miniquad's Java loads the resulting
+`lib<library>.so` and starts it through `quad_main`. The shape a consumer uses:
+
+- `src/lib.rs` — the app, with the entry point exported for Android:
+
+  ```rust
+  pub fn run() {
+      macroquad::Window::from_config(window_conf(), app());
+  }
+
+  #[cfg(target_os = "android")]
+  #[unsafe(no_mangle)] // `#[no_mangle]` on edition 2021
+  pub extern "C" fn quad_main() {
+      run();
+  }
+  ```
+
+- `src/main.rs` — `fn main() { my_app::run() }`, for native and web.
+- `android/AndroidManifest.xml` — the app's own. `package="${package}"` is
+  substituted (miniquad's `TARGET_PACKAGE_NAME` too); otherwise it must name the
+  package `--package` gives. It needs `.MainActivity`, a launcher intent filter,
+  GLES 2 and the `configChanges` miniquad expects. `montager`'s
+  `crates/montage-mq/android/AndroidManifest.xml` is a worked example.
+- `web/` — the plugin scripts `build.rs` stamps, for the web build.
+
+`--library` is the library name (`field_guide`) and `--crate` the package
+(`field-guide`); they are not the same string.
+
+`macroquad-app` brings `ureq` on native targets, whose `rustls`/`ring` needs the
+NDK's clang to build for `aarch64-linux-android`. Even `cargo check --target
+aarch64-linux-android` has to run inside the android devshell.
+
+The work directory is always `<target>/android/work`, and `--out` defaults to
+`<target>/android/<package>.apk`, so a build writes into `target/` unless `--out`
+says otherwise.
+
 ## What it resolves
 
 - **The app crate** through `cargo metadata`, walked from `--crate` for

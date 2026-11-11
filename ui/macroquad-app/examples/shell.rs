@@ -21,7 +21,7 @@ use macroquad_app::{
     Keyboard, Leading, NavItem, NavPlace, Route, Router, TextField, Toasts, Tone, bottom_nav,
     chip_row, nav_rail, shell_layout,
 };
-use macroquad_gamekit::{Backdrop, Frame, Game, Stage};
+use macroquad_gamekit::{Backdrop, Frame, Game, Stage, harness};
 use macroquad_widgets::{
     Align, Line, Painter, ScrollInput, Theme, fill_rounded, stroke_rounded, theme::with_alpha,
 };
@@ -412,14 +412,16 @@ impl Game for Demo {
 }
 
 fn window_conf() -> Conf {
-    Conf {
+    let args = harness::Args::read();
+    let (w, h) = args.window_size((390, 844));
+    args.window_conf(Conf {
         window_title: "macroquad-app shell".to_string(),
-        window_width: 390,
-        window_height: 844,
+        window_width: w,
+        window_height: h,
         high_dpi: true,
         window_resizable: true,
         ..Default::default()
-    }
+    })
 }
 
 #[macroquad::main(window_conf)]

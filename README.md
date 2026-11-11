@@ -29,14 +29,16 @@ Each crate reached for cold has an index beside it:
 | [`gaming/macroquad-gamekit/CATALOG.md`](gaming/macroquad-gamekit/CATALOG.md) | stateful game modules that hold across frames |
 | [`gaming/macroquad-gamekit/ANIMATION.md`](gaming/macroquad-gamekit/ANIMATION.md) | sprites, gaits and the motion rubric |
 | [`gaming/macroquad-gamekit/CARD-FACES.md`](gaming/macroquad-gamekit/CARD-FACES.md) | card faces: the visible strip, layers, baking |
-| [`ui/macroquad-app/CATALOG.md`](ui/macroquad-app/CATALOG.md) | the app shell: routes, text entry, insets, pages, grids |
-| [`ui/macroquad-storybook/README.md`](ui/macroquad-storybook/README.md) | stories, captures, the text report and the goldens |
+| [`ui/macroquad-app/README.md`](ui/macroquad-app/README.md) | building an app: the shell, screens, a list, empty states, back, captures (module index in `CATALOG.md`) |
+| [`gaming/macroquad-gamekit/src/harness.rs`](gaming/macroquad-gamekit/src/harness.rs) | the capture loop every client runs: `--shot`, `--size`, `--plan`, the text report, headless |
+| [`ui/macroquad-storybook/README.md`](ui/macroquad-storybook/README.md) | the storybook's own stories, capture flags and goldens (not an app's) |
 | [`ui/macroquad-bundle/README.md`](ui/macroquad-bundle/README.md) | the web bundle: flags, steps, refusals |
-| [`ui/macroquad-apk/README.md`](ui/macroquad-apk/README.md) | the APK: flags, the plan, the SDK, refusals |
+| [`ui/macroquad-apk/README.md`](ui/macroquad-apk/README.md) | the APK: app shape, flags, the plan, the SDK, refusals |
 
 The three catalogues are generated from each module's own `//!` header, so a
 module without one fails its crate's test. The storybook and the two packaging
-tools document their flags in a README, because the flags are the interface.
+tools document their flags in a README; a client's capture flags are the harness
+module's header.
 
 ## Build and test
 
@@ -100,6 +102,61 @@ consuming repo must pin the **same** rev, or Cargo can resolve two sources for
 the same package. Bump both together. To develop against a sibling checkout,
 uncomment the whole `[patch."https://github.com/defrag-au/shared-crates"]`
 block at the bottom of `Cargo.toml` — as a unit, never partially.
+
+## Consuming the kit
+
+A new app, game or client is its own workspace and takes the kit by git rev.
+Every kit crate it uses points at the same rev:
+
+```toml
+[workspace.dependencies]
+macroquad-app = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
+macroquad-gamekit = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
+macroquad-widgets = { git = "https://github.com/defrag-au/macroquad-kit", rev = "<full sha>" }
+macroquad = "0.4"
+```
+
+The same root `Cargo.toml` carries **both** `[patch]` lines above. They are not
+only for the gamekit: the miniquad one is what gives every client the headless
+capture path.
+
+It also carries:
+
+- **`tools/mq-bundle`** — the binary cargo will not run from another workspace:
+
+  ```toml
+  [dependencies]
+  macroquad-bundle = { workspace = true }
+  ```
+
+  ```rust
+  fn main() -> std::process::ExitCode {
+      macroquad_bundle::main()
+  }
+  ```
+
+- **`tools/mq-apk`** — the same, over `macroquad-apk`.
+- **`build.rs`** — stamp the plugins the client uses into `web/`. The app shell
+  is `macroquad_app::PLUGIN_JS`; the gamekit's are stamped with
+  `macroquad_gamekit::web::stamp`.
+- **fonts** — the kit ships none for consumers. Its examples use Noto Sans Bold
+  and JetBrains Mono (both OFL) from `ui/macroquad-storybook/assets/`; copy the
+  faces you want into your crate and load them with the kit's `load_font`.
+
+For an APK the app lives in a **library** target: `src/lib.rs` holds the app and
+exports miniquad's entry point, and `src/main.rs` calls into it for native and
+web. `macroquad-apk` builds the library as a `cdylib`, which is what the Android
+activity loads. `ui/macroquad-apk/README.md` has the shape, and `montager`'s
+`montage-mq` is the worked example.
+
+The repository is private, so cargo's git fetch needs credentials: a credential
+helper (`credential.https://github.com.helper = !gh auth git-credential` in
+`~/.gitconfig`), or `CARGO_NET_GIT_FETCH_WITH_CLI=true` so cargo uses the system
+git and its SSH key.
+
+If the client also takes a pure crate from `shared-crates` directly, rather than
+through a kit re-export, pin the rev the kit's `Cargo.toml` names. Two different
+revs resolve two sources for the same package.
 
 ## Licensing
 

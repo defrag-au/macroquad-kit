@@ -2,8 +2,9 @@
 //! an exact moment captured to a PNG *and* a text report of every line drawn,
 //! scripted pointers, and a window camera that is the right way up.
 //!
-//! A client wires it once (see `fight-macroquad` in augminted-bots for the
-//! reference) and gets these flags natively:
+//! A client wires it once (see `examples/board.rs` for a game and
+//! `ui/macroquad-app/examples/shell.rs` for an app; `fight-macroquad` in
+//! augminted-bots is a full game) and gets these flags natively:
 //!
 //! ```sh
 //! game --shot out.png [--at 1.5] [--size 390x844]     # capture a moment
