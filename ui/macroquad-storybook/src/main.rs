@@ -33,8 +33,9 @@ use macroquad_widgets::{
     SquadCommit, SquadPickerAction, SquadPickerVm, StepperAction, StickView, SwipeDir, Theme,
     TrainRider, TrainState, WalletAction, WalletConnectVm, WalletItem, WalletListAction,
     WalletListState, WalletListVm, WalletRow, WalletState, block_pulse, block_train, callout,
-    floating_stick, mint_checkout, order_fulfilment, quantity_stepper, segmented, segmented_pills,
-    squad_picker, theme, wallet_connect, wallet_list,
+    draw_arc, draw_circle, draw_circle_lines, fill_rounded, floating_stick, mint_checkout,
+    order_fulfilment, quantity_stepper, segmented, segmented_pills, squad_picker, stroke_rounded,
+    theme, wallet_connect, wallet_list,
 };
 use page_stories::{PageStory, PageView};
 use route_stories::RouteStory;
@@ -166,6 +167,8 @@ enum Body {
     App(Box<AppStory>),
     /// A page piece: the message, the surface, wrapped prose.
     Page(Box<PageStory>),
+    /// The shape library's own specimen sheet.
+    Shapes,
 }
 
 /// The operator panel with a game's numbers in it and its buttons wired to an
@@ -222,6 +225,7 @@ enum Kind {
     Cart,
     App,
     Page,
+    Shapes,
 }
 
 struct Story {
@@ -373,6 +377,7 @@ impl Story {
             Body::Cart(_) => Kind::Cart,
             Body::App(_) => Kind::App,
             Body::Page(_) => Kind::Page,
+            Body::Shapes => Kind::Shapes,
         }
     }
 
@@ -391,6 +396,11 @@ impl Story {
                 _ => vec2(600.0, 760.0),
             },
             Kind::Page => vec2(390.0, 844.0),
+            // Not a composition but a specimen sheet: the shape library is what
+            // is under review, so it gets one wide row per variant.
+            // The shapes an approximated edge would show on, so they get one
+            // wide row and a row for the arcs.
+            Kind::Shapes => vec2(760.0, 200.0),
             Kind::App => match &self.body {
                 Body::App(story) => story.canvas(),
                 _ => vec2(390.0, 844.0),
@@ -427,6 +437,18 @@ impl Story {
             category: "page",
             name,
             body: Body::Page(Box::new(PageStory::new(view))),
+        }
+    }
+
+    /// Not in the golden corpus (`tests/visual.rs`): a golden would pin the
+    /// picture before the shape library it shows is decided.
+    /// The shape vocabulary, under `atoms` so a change to any edge shows up as
+    /// a golden diff rather than in a story nobody opens.
+    fn shapes(name: &'static str) -> Self {
+        Self {
+            category: "atoms",
+            name,
+            body: Body::Shapes,
         }
     }
 
@@ -1130,6 +1152,7 @@ fn stories(sample_icon: Option<Texture2D>) -> Vec<Story> {
         Story::page("page · wrap", PageView::Wrap),
         Story::page("page · holder profile", PageView::HolderProfile),
         Story::page("page · holder one core short", PageView::HolderNearMiss),
+        Story::shapes("shapes"),
     ]);
     stories
 }
@@ -1201,6 +1224,52 @@ fn next_status(s: OrderStatus) -> OrderStatus {
         Unfulfilled => Failed,
         Failed => Pending,
     }
+}
+
+/// What the shape helpers actually draw, at the sizes where an approximated
+/// edge would show: a radius worth faking, a small one, a pill, a translucent
+/// plate, a hairline ring, a heavy one, a disc, a ring, and two arcs.
+///
+/// This is the library's own story, not a comparison — there is one path to a
+/// rounded shape now, and this is what it looks like. It belongs in the golden
+/// corpus, because a change to any of these edges should show up as a diff.
+fn draw_shapes(p: &Painter, area: Rect) {
+    let (w, h, gap) = (78.0, 68.0, 11.0);
+    let bg = p.theme.color.bg_secondary;
+    let accent = p.theme.color.accent;
+    let ghost = theme::with_alpha(accent, 0.5);
+    let muted = p.theme.color.text_muted;
+
+    let x0 = area.x + 24.0;
+    let y = area.y + 40.0;
+    p.text("plates, rings, discs, arcs", x0, area.y + 24.0, 13.0, muted);
+
+    let mut cx = x0;
+    fill_rounded(Rect::new(cx, y, w, h), 28.0, bg);
+    cx += w + gap;
+    fill_rounded(Rect::new(cx, y, w, h), 10.0, bg);
+    cx += w + gap;
+    // A pill: the radius is the half-height.
+    fill_rounded(Rect::new(cx, y, w, h), h / 2.0, bg);
+    cx += w + gap;
+    // Translucent: the corners must not darken where the shape overlaps itself.
+    fill_rounded(Rect::new(cx, y, w, h), 28.0, ghost);
+    cx += w + gap;
+    stroke_rounded(Rect::new(cx, y, w, h), 20.0, 1.5, accent);
+    cx += w + gap;
+    stroke_rounded(Rect::new(cx, y, w, h), 20.0, 3.0, accent);
+    cx += w + gap;
+    draw_circle(cx + w * 0.5, y + h * 0.5, h * 0.5, accent);
+    cx += w + gap;
+    // A ring from `r` outwards, which is macroquad's `draw_circle_lines`.
+    draw_circle_lines(cx + w * 0.5, y + h * 0.5, h * 0.5 - 3.0, 3.0, accent);
+
+    // The ends are the hard part of an arc: a half turn, a part turn, and the
+    // same sweep at a hairline width.
+    let ay = y + h + 36.0;
+    draw_arc(x0 + 44.0, ay, 48, 26.0, 0.0, 3.0, 180.0, accent);
+    draw_arc(x0 + 132.0, ay, 48, 26.0, 200.0, 3.0, 100.0, accent);
+    draw_arc(x0 + 220.0, ay, 48, 26.0, 90.0, 1.5, 270.0, accent);
 }
 
 /// The buttons atom story — variant × state matrix + accent swatches.
@@ -1689,6 +1758,7 @@ impl Storybook {
                     story.draw(p, area);
                 }
             }
+            Kind::Shapes => draw_shapes(p, Rect::new(x0, y, avail_w, avail_h)),
             Kind::App => {
                 let (dt, g) = (self.dt, self.gesture);
                 if let Body::App(story) = &mut self.stories[sel].body {

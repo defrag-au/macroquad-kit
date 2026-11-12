@@ -11,6 +11,8 @@
 //! hairline and a lifted fill separate the two, as a phone's own bars do.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use macroquad_widgets::draw_circle;
 use macroquad_widgets::{Align, Line, Painter, fill_rounded, stroke_rounded, theme::with_alpha};
 use ui_theme::TextSize;
 

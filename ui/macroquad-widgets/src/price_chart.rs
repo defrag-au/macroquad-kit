@@ -13,6 +13,8 @@
 //! owns the beats, the range and the playback clock; the widget draws them.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use crate::shape::draw_circle;
 use ui_theme::TextSize;
 
 use crate::market_ink::MarketInk;

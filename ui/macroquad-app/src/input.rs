@@ -29,8 +29,10 @@
 //! drive its caret.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
 use macroquad_gamekit::Frame;
 use macroquad_gamekit::clip::with_clip;
+use macroquad_widgets::draw_circle;
 use macroquad_widgets::{Align, Painter, fill_rounded, stroke_rounded};
 use ui_theme::TextSize;
 

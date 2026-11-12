@@ -42,6 +42,8 @@
 //! game can compute — the panel is handed the answer.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use macroquad_widgets::draw_circle;
 use macroquad_widgets::{Align, Painter, SheetState, TextSize};
 
 /// What one frame costs the client.

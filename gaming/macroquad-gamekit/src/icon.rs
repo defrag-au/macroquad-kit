@@ -9,6 +9,8 @@
 //! not be drawn two ways in one estate.
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
 
 use crate::shape::{fill_rounded, stroke_rounded};
 

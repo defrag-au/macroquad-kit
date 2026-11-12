@@ -19,12 +19,14 @@
 
 use cnft_holdings::{AssetRarity, Stat, StatBlock};
 use macroquad::prelude::*;
+// The exact ring: an explicit import shadows the prelude's thirty-sided one.
 use macroquad_gamekit::{
     Align, Gradient, Icon, Lighting, MeasureAt, Pose, RichText, TextStyle, bevel, draw_icon, face,
     fill_gradient, fill_rounded, grain, inner_shadow, noise_texture, shrink_to_fit, stroke_rounded,
     tab_width,
 };
 use macroquad_widgets::Theme;
+use macroquad_widgets::shape::draw_circle_lines;
 use ui_theme::{legible_on, mix};
 
 use crate::art::ArtLoader;

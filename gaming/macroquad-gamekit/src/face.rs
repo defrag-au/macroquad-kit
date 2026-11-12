@@ -13,6 +13,8 @@
 //! the screen) and so should not be drawn and reported.
 
 use macroquad::prelude::*;
+// The exact discs, rings and arcs: explicit imports shadow the prelude's.
+use macroquad_widgets::shape::{draw_arc, draw_circle, draw_circle_lines};
 
 use crate::icon::{Icon, draw_icon};
 use crate::paint::{Gradient, bevel, fill_circle_gradient, fill_gradient};

@@ -39,12 +39,17 @@ impl<'a> Painter<'a> {
         theme: Theme,
         tap: Option<Vec2>,
     ) -> Self {
+        let px = screen_dpi_scale();
+        // Kept in step for `draw_rounded_rect` and the shape helpers, which are
+        // free functions and have no painter to ask. Every call site builds its
+        // painter immediately before drawing.
+        crate::sdf::set_px(px);
         Self {
             font,
             mono,
             theme,
             tap,
-            px: screen_dpi_scale(),
+            px,
             now: get_time(),
         }
     }
@@ -55,6 +60,7 @@ impl<'a> Painter<'a> {
     /// rasterises at that size, so it stays sharp under any camera.
     pub fn pixel_scale(mut self, px: f32) -> Self {
         self.px = px;
+        crate::sdf::set_px(px);
         self
     }
 
@@ -467,19 +473,29 @@ fn aligned_x(rect: Rect, w: f32, align: Align) -> f32 {
 
 /// Filled rounded rectangle (macroquad has no high-level rounded rect).
 ///
-/// Built as a single convex polygon (four corner arcs joined by straight edges)
-/// filled by a triangle fan from the centre, so every pixel is drawn EXACTLY
-/// once. A rects-plus-corner-discs approach double-draws the overlaps, which is
-/// invisible for opaque fills but compounds alpha into dark corner blobs for
-/// translucent ones (tonal / ghost buttons). `r` is clamped to half the
-/// smaller side.
+/// A rounded rectangle in one quad, antialiased by a distance field.
+///
+/// The shader is the path: it is exact at any radius and its edge is smooth, so
+/// a hairline ring reads as a line rather than as a staircase. A radius under
+/// three quarters of a point is drawn as a plain rectangle instead — there is
+/// no corner to antialias, and the rectangle joins the batch for nothing.
+///
+/// Where the shader cannot load (a backend without GLSL) this falls back to the
+/// tessellated fan below, which is why it is still here: a surface with no GLSL
+/// gets hard edges rather than nothing. The fan is a single convex polygon so
+/// every pixel is drawn EXACTLY once; rects-plus-corner-discs double-draw the
+/// overlaps, which is invisible for opaque fills and compounds alpha into dark
+/// corner blobs for translucent ones.
 pub fn draw_rounded_rect(x: f32, y: f32, w: f32, h: f32, r: f32, color: Color) {
-    use std::f32::consts::PI;
     let r = r.min(w * 0.5).min(h * 0.5).max(0.0);
     if r < 0.75 {
         draw_rectangle(x, y, w, h, color);
         return;
     }
+    if crate::sdf::fill(Rect::new(x, y, w, h), r, color) {
+        return;
+    }
+    use std::f32::consts::PI;
     const SEG: usize = 4;
     let corners = [
         (x + r, y + r, PI, 1.5 * PI),           // top-left

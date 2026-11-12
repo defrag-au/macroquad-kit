@@ -94,6 +94,8 @@
 use std::path::{Path, PathBuf};
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use macroquad_widgets::shape::draw_circle;
 
 /// The clock a capture runs on: sixty steps a second, whatever the machine.
 pub const FIXED_DT: f32 = 1.0 / 60.0;

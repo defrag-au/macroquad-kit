@@ -33,6 +33,8 @@
 //! capture report sees it.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use crate::shape::draw_circle;
 use ui_theme::{Ink, TextSize, Token};
 
 use crate::painter::{Painter, draw_rounded_rect, with_alpha};
