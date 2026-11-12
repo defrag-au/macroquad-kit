@@ -11,7 +11,9 @@ long clipped grid and a page that scrolls.
 thousand cards, a search field, filters, a detail screen behind Back, the app
 bar, the navigation and toasts. `examples/form.rs` is the form: three fields, a
 validation error, a page of settings and a footer that stays disabled until the
-handle is valid. Copy their shape.
+handle is valid. `examples/notes.rs` is the multi-line one: a title and a single
+`TextArea` holding a whole note — it wraps, grows to a cap, scrolls inside, and
+its caret is kept above the keyboard. Copy their shape.
 
 ## The frame
 
