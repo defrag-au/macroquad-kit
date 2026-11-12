@@ -16,7 +16,8 @@ publish = false
 #
 #   cargo run -q -p mq-bundle -- --package macroquad-storybook \
 #       --wasm macroquad-storybook.wasm --title "macroquad storybook" \
-#       --dest .tmp/storybook-web --web ui/macroquad-storybook/web
+#       --dest .tmp/storybook-web --web ui/macroquad-storybook/web \
+#       --assets ui/macroquad-storybook/assets
 #   python3 -m http.server 8197 --directory .tmp/storybook-web
 #
 # `?story=<words>` picks a story, as `--story` does natively. `build.rs` stamps
@@ -63,3 +64,5 @@ wallet-miniquad = { workspace = true }
 # was linked against.
 wallet-miniquad = { workspace = true }
 miniquad-platform = { workspace = true }
+# The app shell's page script (`PageScript::AppShell`), stamped the same way.
+macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }

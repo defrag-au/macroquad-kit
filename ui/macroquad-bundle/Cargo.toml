@@ -11,7 +11,7 @@ description = "Build and stage a macroquad client as a static web bundle: wasm, 
 # A LIBRARY with a one-line binary per consuming repo, not a binary here alone:
 # cargo only runs binaries of the workspace it is in, so each repo carries a
 # `tools/mq-bundle` crate whose main is `macroquad_bundle::main()`. That keeps
-# the bundler pinned by the same shared-crates rev as everything else the
+# the bundler pinned by the same macroquad-kit rev as everything else the
 # game links, and runnable in CI with nothing but cargo (`cargo run -p
 # mq-bundle -- …`).
 #

@@ -12,6 +12,8 @@
 //! never reads as "the price did not move".
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use crate::shape::draw_circle;
 use ui_theme::TextSize;
 
 use crate::market_ink::MarketInk;

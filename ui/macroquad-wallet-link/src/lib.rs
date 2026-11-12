@@ -27,8 +27,9 @@
 //! - **This crate** draws, and carries outcomes between the three.
 //!
 //! The page needs `wallet.js` and `evm.js` (wallet-miniquad), `platform.js`
-//! (miniquad-platform) and `app.js` (macroquad-app); this crate's `build.rs`
-//! stamps all four for its own app.
+//! (miniquad-platform) and `gamekit-app-shell.js` (macroquad-gamekit's
+//! `PageScript::AppShell`); this crate's `build.rs` stamps all four for its own
+//! app.
 
 pub mod demo;
 mod io;

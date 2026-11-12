@@ -79,4 +79,5 @@ linker.show(frame, &painter, rect);
 ```
 
 The page needs `wallet.js`, `evm.js` and `midnight.js` (wallet-miniquad), `platform.js`
-(miniquad-platform) and `app.js` (macroquad-app).
+(miniquad-platform) and `gamekit-app-shell.js` (macroquad-gamekit's
+`PageScript::AppShell`).

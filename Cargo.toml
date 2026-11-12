@@ -56,8 +56,8 @@ macroquad-widgets = { path = "ui/macroquad-widgets" }
 
 # ── The pure core, consumed from `shared-crates` ──────────────────────────
 # One rev, shared by every entry below and kept in step with each consuming
-# repo's own `shared-crates` pin. `aa9fe4ab` is the last pushed `main`; bump
-# this after the shared-crates extraction commit is pushed.
+# repo's own `shared-crates` pin. Bump every entry together, then bump each
+# consumer to match.
 ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
 chains = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
 perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }

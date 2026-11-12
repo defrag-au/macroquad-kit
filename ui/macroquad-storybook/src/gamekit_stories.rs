@@ -13,6 +13,7 @@
 //! content.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
 use macroquad_gamekit::wall::{
     ColourTile, FnTile, ImageSource, ImageTile, ImageView, Layered, TileCtx, Tiles,
 };
@@ -22,6 +23,7 @@ use macroquad_gamekit::{
     RoundedArt, Sequencer, Shake, Sprite, TextStyle, draw_icon, draw_order, emblem, fill_rounded,
     gem, line, plate, shrink_to_fit, stroke_rounded, topmost,
 };
+use macroquad_widgets::draw_circle;
 use macroquad_widgets::{Gesture, Painter, Scroll, ScrollInput};
 use ui_theme::TextSize;
 

@@ -16,7 +16,9 @@
 
 use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 use macroquad::prelude::*;
+// The exact ring: an explicit import shadows the prelude's thirty-sided one.
 use macroquad_gamekit::{Ease, RoundedArt, fill_rounded};
+use macroquad_widgets::shape::draw_circle_lines;
 
 use crate::art::{ArtLoader, ArtView};
 

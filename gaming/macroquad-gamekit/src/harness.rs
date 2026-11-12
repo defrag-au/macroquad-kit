@@ -2,14 +2,16 @@
 //! an exact moment captured to a PNG *and* a text report of every line drawn,
 //! scripted pointers, and a window camera that is the right way up.
 //!
-//! A client wires it once (see `fight-macroquad` in augminted-bots for the
-//! reference) and gets these flags natively:
+//! A client wires it once (see `examples/board.rs` for a game and
+//! `ui/macroquad-app/examples/shell.rs` for an app; `fight-macroquad` in
+//! augminted-bots is a full game) and gets these flags natively:
 //!
 //! ```sh
 //! game --shot out.png [--at 1.5] [--size 390x844]     # capture a moment
 //!      [--px 3]                                      # at 3 pixels a unit, whatever the display
 //!      [--hover N | --drag N | --longpress N | --rclick N]  # with a scripted pointer
 //!      [--keys "10:Up,20-40:Right"]                  # with scripted keys, by frame
+//!      [--fail-on-problems [--allow off,cut,small,overlap]]  # and fail on text problems
 //! game --plan plan.txt                               # many conditions and captures, one launch
 //! game --soak 20                                     # the game's own soak loop
 //! game --sheet sheet.png                             # the game's own sheet of faces
@@ -63,7 +65,9 @@
 //! text is a second check. It lists every line of text drawn, on the screen
 //! and inside each baked face, with its box and size, and leads with the
 //! problems that are easy to miss by eye: text off its surface, cut short with
-//! an ellipsis, smaller than legible, or on top of other text.
+//! an ellipsis a host wrote, smaller than legible, or on top of other text. A
+//! string the kit cut to fit is marked as deliberate, so its own ellipsis is not
+//! a problem.
 //!
 //! ## A golden turns a capture into a test
 //!
@@ -90,6 +94,8 @@
 use std::path::{Path, PathBuf};
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use macroquad_widgets::shape::draw_circle;
 
 /// The clock a capture runs on: sixty steps a second, whatever the machine.
 pub const FIXED_DT: f32 = 1.0 / 60.0;
@@ -321,6 +327,14 @@ pub struct Args {
     /// `--profile`: time each frame's scopes ([`crate::profile`]) and add
     /// where the time went to a capture's report.
     pub profile: bool,
+    /// `--fail-on-problems`: exit 2 when a capture's text report finds a
+    /// problem.
+    pub fail_on_problems: bool,
+    /// `--allow off,cut,small,overlap`: problem kinds `--fail-on-problems`
+    /// ignores. A screen that exists to show a literal cut passes `cut` and
+    /// still fails on everything else; a cut the kit made (`Painter::fit`,
+    /// `shrink_to_fit`) is not a problem and needs no allowance.
+    pub allow: Vec<report::ProblemKind>,
     /// `--keys "10:Up,20-40:Right"`: keys the loop presses for the game, by
     /// frame, merged into [`Frame::input`](crate::Frame::input) so the game
     /// cannot tell them from a player's. See [`KeyScript`].
@@ -514,6 +528,23 @@ impl Args {
             }),
             frame_log: argv.iter().any(|a| a == "--frame-log"),
             profile: argv.iter().any(|a| a == "--profile"),
+            fail_on_problems: argv.iter().any(|a| a == "--fail-on-problems"),
+            allow: flag_in(argv, "--allow")
+                .map(|list| {
+                    list.split(',')
+                        .map(str::trim)
+                        .filter(|kind| !kind.is_empty())
+                        .map(|kind| {
+                            report::ProblemKind::parse(kind).unwrap_or_else(|| {
+                                eprintln!(
+                                    "--allow {kind}: unknown problem kind; use off, cut, small or overlap"
+                                );
+                                std::process::exit(2)
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             keys: flag_in(argv, "--keys")
                 .map(|s| {
                     KeyScript::parse_all(&s).unwrap_or_else(|e| {
@@ -540,6 +571,17 @@ impl Args {
                 }
             }),
         }
+    }
+
+    /// The text problems a capture reported, less the kinds `--allow` names.
+    pub fn capture_problems(&self) -> Vec<report::Problem> {
+        let (screen, bakes) = report::surfaces();
+        let mut found = report::problems(&screen);
+        for face in &bakes {
+            found.extend(report::problems(face));
+        }
+        found.retain(|problem| !self.allow.contains(&problem.kind()));
+        found
     }
 
     /// The pixels per design unit a frame is drawn at: `--px` while
@@ -948,8 +990,11 @@ pub fn golden_path(dir: &str) -> PathBuf {
 }
 
 /// `UPDATE_GOLDENS=1`: write the golden instead of comparing against it.
+///
+/// An empty value counts as unset: a workflow that sets the variable
+/// unconditionally (to `1` or to nothing) must still check by default.
 pub fn update_goldens() -> bool {
-    std::env::var_os("UPDATE_GOLDENS").is_some()
+    std::env::var_os("UPDATE_GOLDENS").is_some_and(|value| !value.is_empty())
 }
 
 /// How a capture compares with its golden.
@@ -1879,6 +1924,7 @@ mod tests {
             rect: Rect::new(x, y, w, size),
             size,
             alpha: 1.0,
+            cut: false,
         }
     }
 
@@ -1961,6 +2007,36 @@ mod tests {
         let text = report::render("out.png", "seed 1");
         assert!(text.contains("## Problems (0)"), "{text}");
         assert!(text.contains("\"Shredder\""), "{text}");
+        report::reset();
+    }
+
+    #[test]
+    fn fail_on_problems_parses_and_allow_is_typed() {
+        let argv: Vec<String> = "game --shot a.png --fail-on-problems --allow cut,off"
+            .split(' ')
+            .map(String::from)
+            .collect();
+        let args = Args::parse(&argv);
+        assert!(args.fail_on_problems);
+        assert_eq!(
+            args.allow,
+            vec![report::ProblemKind::Cut, report::ProblemKind::Off]
+        );
+    }
+
+    #[test]
+    fn capture_problems_leaves_out_what_allow_names() {
+        report::reset();
+        report::enable();
+        report::begin_screen(vec2(100.0, 100.0));
+        report::line("wide…", Rect::new(10.0, 10.0, 200.0, 12.0), 12.0, 1.0);
+        let mut args = Args {
+            fail_on_problems: true,
+            ..Args::default()
+        };
+        assert_eq!(args.capture_problems().len(), 2, "cut and off the surface");
+        args.allow = vec![report::ProblemKind::Cut, report::ProblemKind::Off];
+        assert!(args.capture_problems().is_empty());
         report::reset();
     }
 

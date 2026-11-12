@@ -15,7 +15,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// Infrastructure rather than widgets.
+/// Infrastructure rather than widgets. `sdf` is the distance-field renderer
+/// behind `shape` and `draw_rounded_rect`, and it is private on purpose: the
+/// catalogue is a list of things to reach for, and there is no reason to reach
+/// past the wrappers.
 const NOT_WIDGETS: &[&str] = &[
     "painter",
     "theme",
@@ -23,6 +26,7 @@ const NOT_WIDGETS: &[&str] = &[
     "format",
     "market_ink",
     "marks",
+    "sdf",
 ];
 
 /// Words whose trailing dot is not a sentence end.

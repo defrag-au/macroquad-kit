@@ -3,6 +3,7 @@
 //! (`macroquad_gamekit::harness::Capture`) writes it beside its PNG.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use macroquad::prelude::*;
@@ -13,10 +14,14 @@ pub const MIN_TEXT: f32 = 8.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     pub text: String,
-    /// Its box: left, top, width, height, in the surface's units.
+    /// Its visible box: left, top, width, height, in the surface's units,
+    /// clipped to what is on screen.
     pub rect: Rect,
     pub size: f32,
     pub alpha: f32,
+    /// This run is a fit's cut, or its last word: its trailing ellipsis is
+    /// deliberate.
+    pub cut: bool,
 }
 
 /// A surface text is drawn on: the screen, or a baked face.
@@ -35,8 +40,12 @@ struct State {
     /// Where the screen's content begins in the drawing coordinate space.
     origin: Vec2,
     /// Clips in force, in the drawing units of the surface they were opened
-    /// on. Text wholly outside one is not drawn, so it is not recorded.
+    /// on. Text wholly outside one is not drawn, so it is not recorded; the
+    /// part inside is what a line's box comes to.
     clips: Vec<Rect>,
+    /// Strings a fit produced this frame, whose trailing ellipsis is the cut
+    /// its caller asked for rather than a symptom.
+    fitted: HashSet<String>,
     /// Faces baked since recording began, each once, in bake order.
     bakes: Vec<Surface>,
     /// The bake being drawn, if one is.
@@ -73,6 +82,7 @@ pub fn begin_screen_at(origin: Vec2, size: Vec2) {
         let mut s = s.borrow_mut();
         s.origin = origin;
         s.clips.clear();
+        s.fitted.clear();
         s.screen = Surface {
             size,
             lines: Vec::new(),
@@ -143,27 +153,58 @@ pub fn muted<R>(draw: impl FnOnce() -> R) -> R {
     out
 }
 
+/// `text` is a fit's deliberate cut, not a symptom. The kit registers here
+/// from the two places that cut a string to fit — `macroquad-widgets`'
+/// `Painter::fit` and `macroquad-gamekit`'s `shrink_to_fit` — so a literal
+/// `…` a widget writes still reports.
+///
+/// Cleared with the screen: a mark lasts one frame.
+pub fn fitted(text: &str) {
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.on {
+            s.fitted.insert(text.to_owned());
+        }
+    });
+}
+
+/// Whether `word` is the whole of a fit's cut, or its last word (a layout
+/// that draws a block draws it one word at a time).
+fn is_fitted(fitted: &HashSet<String>, word: &str) -> bool {
+    fitted.contains(word)
+        || fitted.iter().any(|whole| {
+            whole
+                .strip_suffix(word)
+                .is_some_and(|head| head.ends_with(' '))
+        })
+}
+
 /// A line of text was drawn.
-pub fn line(text: &str, rect: Rect, size: f32, alpha: f32) {
+pub fn line(text: &str, mut rect: Rect, size: f32, alpha: f32) {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         if !s.on || s.muted > 0 {
             return;
         }
-        // Text wholly outside a clip is scissored away: not visible, not a
-        // problem. A clip with no area draws nothing at all.
-        if !s
-            .clips
-            .iter()
-            .all(|c| c.w > 0.0 && c.h > 0.0 && c.overlaps(&rect))
-        {
-            return;
+        // A clip shows only the part of a run inside it: record that part, so
+        // text scrolled under its box is measured where it is seen, and a run
+        // half past the window's edge is not off its surface. A clip with no
+        // area draws nothing at all.
+        for clip in &s.clips {
+            if clip.w <= 0.0 || clip.h <= 0.0 {
+                return;
+            }
+            match clip.intersect(rect) {
+                Some(visible) if visible.w > 0.0 && visible.h > 0.0 => rect = visible,
+                _ => return,
+            }
         }
         let line = Line {
             text: text.to_owned(),
             rect,
             size,
             alpha,
+            cut: is_fitted(&s.fitted, text),
         };
         let origin = s.origin;
         match s.baking.as_mut() {
@@ -201,6 +242,52 @@ pub enum Problem {
     Overlap { a: Line, b: Line },
 }
 
+/// The four classes of problem, by the name `--allow` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProblemKind {
+    Off,
+    Cut,
+    Small,
+    Overlap,
+}
+
+impl ProblemKind {
+    pub const ALL: [ProblemKind; 4] = [
+        ProblemKind::Off,
+        ProblemKind::Cut,
+        ProblemKind::Small,
+        ProblemKind::Overlap,
+    ];
+
+    /// The name `--allow` takes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Cut => "cut",
+            Self::Small => "small",
+            Self::Overlap => "overlap",
+        }
+    }
+
+    /// The kind `--allow` names, or `None` for something else.
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        Self::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+}
+
+impl Problem {
+    /// Which class this problem is, for `--allow`.
+    pub fn kind(&self) -> ProblemKind {
+        match self {
+            Self::Off { .. } => ProblemKind::Off,
+            Self::Cut { .. } => ProblemKind::Cut,
+            Self::Small { .. } => ProblemKind::Small,
+            Self::Overlap { .. } => ProblemKind::Overlap,
+        }
+    }
+}
+
 /// Text that can be seen: fully transparent lines are animation states.
 fn visible(l: &Line) -> bool {
     l.alpha > 0.05
@@ -228,6 +315,8 @@ pub fn joined(surface: &Surface) -> Vec<Line> {
                 last.text = format!("{} {}", last.text, w.text);
                 last.rect.w = w.rect.right() - last.rect.x;
                 last.rect.h = last.rect.h.max(w.rect.h);
+                // Either word may be the fitted one.
+                last.cut |= w.cut;
                 continue;
             }
         }
@@ -251,7 +340,7 @@ pub fn problems(surface: &Surface) -> Vec<Problem> {
         if !inside {
             out.push(Problem::Off { line: (*l).clone() });
         }
-        if l.text.ends_with('…') {
+        if l.text.ends_with('…') && !l.cut {
             out.push(Problem::Cut { line: (*l).clone() });
         }
         if l.size < MIN_TEXT {
@@ -330,9 +419,9 @@ pub fn render(png: &str, note: &str) -> String {
     }
     let _ = writeln!(
         out,
-        "\nBoxes are (left, top, width×height) in design units, then the text size and the text. \
-         The screen is {:.0}×{:.0}. A face's text is in the face's own units; the face is drawn \
-         scaled, so its on-screen size is its size times that scale.",
+        "\nBoxes are (left, top, width×height) in design units, clipped to what is visible, then \
+         the text size and the text. The screen is {:.0}×{:.0}. A face's text is in the face's own \
+         units; the face is drawn scaled, so its on-screen size is its size times that scale.",
         screen.size.x, screen.size.y
     );
     let _ = writeln!(out, "\n## Problems ({})", found.len());
@@ -419,6 +508,89 @@ mod tests {
         assert_eq!(screen.lines.len(), 1);
         assert_eq!(screen.lines[0].text, "inside");
         reset();
+    }
+
+    #[test]
+    fn text_past_a_clip_is_measured_where_it_is_visible() {
+        screen_at(Vec2::ZERO, vec2(100.0, 100.0));
+        push_clip(Rect::new(0.0, 0.0, 100.0, 100.0));
+        // A run that would run 30 past the surface's right edge.
+        line("half past", Rect::new(90.0, 10.0, 40.0, 14.0), 12.0, 1.0);
+        pop_clip();
+        let (screen, _) = surfaces();
+        assert_eq!(screen.lines[0].rect, Rect::new(90.0, 10.0, 10.0, 14.0));
+        assert!(
+            problems(&screen).is_empty(),
+            "the visible part is wholly on its surface"
+        );
+        reset();
+    }
+
+    #[test]
+    fn a_fitted_ellipsis_is_not_a_cut() {
+        screen_at(Vec2::ZERO, vec2(200.0, 100.0));
+        fitted("A name far…");
+        line("A name far…", Rect::new(0.0, 0.0, 60.0, 14.0), 12.0, 1.0);
+        assert!(problems(&surfaces().0).is_empty());
+        reset();
+    }
+
+    #[test]
+    fn a_fit_mark_lasts_one_frame() {
+        screen_at(Vec2::ZERO, vec2(200.0, 100.0));
+        fitted("A name far…");
+        // The next frame draws a literal ellipsis without a fit: it reports.
+        begin_screen(Vec2::new(200.0, 100.0));
+        line("A name far…", Rect::new(0.0, 0.0, 60.0, 14.0), 12.0, 1.0);
+        assert!(matches!(
+            problems(&surfaces().0).as_slice(),
+            [Problem::Cut { .. }]
+        ));
+        reset();
+    }
+
+    #[test]
+    fn every_problem_kind_round_trips_through_its_name() {
+        for kind in ProblemKind::ALL {
+            assert_eq!(ProblemKind::parse(kind.as_str()), Some(kind));
+        }
+        assert_eq!(ProblemKind::parse(" clipp "), None);
+        assert_eq!(ProblemKind::parse(""), None);
+    }
+
+    #[test]
+    fn a_problem_names_its_kind() {
+        let line = Line {
+            text: "x".to_owned(),
+            rect: Rect::new(0.0, 0.0, 1.0, 1.0),
+            size: 12.0,
+            alpha: 1.0,
+            cut: false,
+        };
+        let other = line.clone();
+        assert_eq!(Problem::Off { line }.kind(), ProblemKind::Off);
+        assert_eq!(
+            Problem::Cut {
+                line: other.clone()
+            }
+            .kind(),
+            ProblemKind::Cut
+        );
+        assert_eq!(
+            Problem::Small {
+                line: other.clone()
+            }
+            .kind(),
+            ProblemKind::Small
+        );
+        assert_eq!(
+            Problem::Overlap {
+                a: other.clone(),
+                b: other
+            }
+            .kind(),
+            ProblemKind::Overlap
+        );
     }
 
     #[test]

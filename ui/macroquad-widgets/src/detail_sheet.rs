@@ -36,6 +36,8 @@
 //! the sheet then closes is the host's call (a cart mid-signature might not).
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use crate::shape::{draw_circle, draw_circle_lines};
 use ui_theme::TextSize;
 
 use crate::painter::with_alpha;

@@ -6,6 +6,9 @@
 //! widget returns actions → host dispatches. No async, no I/O, no backend deps.
 
 pub mod painter;
+/// The distance-field renderer behind [`shape`] and [`draw_rounded_rect`].
+/// Private: one door per shape, so new code cannot reach for the old look.
+mod sdf;
 pub mod shape;
 pub mod theme;
 
@@ -125,7 +128,10 @@ pub use scroll::{
     NOTCH_POINTS, Scroll, ScrollAxis, ScrollInput, WHEEL_IN_POINTS, wheel_points, wheel_points_on,
 };
 pub use segmented::{pill_rects, segmented, segmented_pills};
-pub use shape::{Gradient, fill_gradient, fill_rounded, fill_texture_rounded, stroke_rounded};
+pub use shape::{
+    Gradient, draw_arc, draw_circle, draw_circle_lines, fill_gradient, fill_rounded,
+    fill_texture_rounded, stroke_rounded,
+};
 pub use slider::{AmountSliderVm, SliderStop, amount_slider};
 pub use spinner::Spinner;
 pub use squad_picker::{

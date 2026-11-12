@@ -654,7 +654,11 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
             present(shown, viewport, origin);
             if let (Some(path), Some(run)) = (&plan_shot, plan.as_mut()) {
                 let note = plan_note(run);
-                wrote_planned(path, harness::write_capture(&shown.texture, path, &note));
+                wrote_planned(
+                    path,
+                    harness::write_capture(&shown.texture, path, &note),
+                    &args,
+                );
                 run.wrote();
             } else if due && let Some(path) = args.shot.as_ref() {
                 let note = game.capture_note(&frame);
@@ -665,15 +669,17 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                             finish_capture(path, run.save(path, &note));
                         }
                     }
-                    None => {
-                        finish_capture(path, harness::write_capture(&shown.texture, path, &note))
-                    }
+                    None => finish_text_capture(
+                        path,
+                        harness::write_capture(&shown.texture, path, &note),
+                        &args,
+                    ),
                 }
             }
         } else if let Some(capture) = capture {
             if let (Some(path), Some(run)) = (&plan_shot, plan.as_mut()) {
                 let note = plan_note(run);
-                wrote_planned(path, capture.save(path, &note));
+                wrote_planned(path, capture.save(path, &note), &args);
                 run.wrote();
             } else if let Some(path) = args.shot.as_ref() {
                 let note = game.capture_note(&frame);
@@ -683,7 +689,7 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                             finish_capture(path, run.save(path, &note));
                         }
                     }
-                    None => save(capture, path, &note),
+                    None => finish_text_capture(path, capture.save(path, &note), &args),
                 }
             }
         }
@@ -722,15 +728,11 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
 }
 
 /// Report a plan's capture, and stop the run if its report couldn't be
-/// written: a plan's captures are its whole point.
-fn wrote_planned(path: &str, written: std::io::Result<std::path::PathBuf>) {
-    match written {
-        Ok(report) => println!("wrote {path} and {}", report.display()),
-        Err(error) => {
-            eprintln!("wrote {path}, but not its report: {error}");
-            std::process::exit(1);
-        }
-    }
+/// written: a plan's captures are its whole point. With `--fail-on-problems`,
+/// a reported problem stops the plan too.
+fn wrote_planned(path: &str, written: std::io::Result<std::path::PathBuf>, args: &harness::Args) {
+    wrote(path, written);
+    check_problems(path, args);
 }
 
 /// Frames drawn before a capture fast-forwards: the start of the run, where
@@ -1022,7 +1024,8 @@ pub fn save(capture: Capture, path: &str, note: &str) -> ! {
     finish_capture(path, capture.save(path, note))
 }
 
-fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> ! {
+/// Say where a capture and its report went, or stop if the report failed.
+fn wrote(path: &str, written: std::io::Result<std::path::PathBuf>) {
     match written {
         Ok(report) => println!("wrote {path} and {}", report.display()),
         Err(error) => {
@@ -1030,6 +1033,38 @@ fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> !
             std::process::exit(1);
         }
     }
+}
+
+/// `--fail-on-problems`: stop on a text problem `--allow` does not cover.
+fn check_problems(path: &str, args: &harness::Args) {
+    if !args.fail_on_problems {
+        return;
+    }
+    let problems = args.capture_problems();
+    if problems.is_empty() {
+        return;
+    }
+    eprintln!(
+        "{} text problem(s) in {path}; see {}",
+        problems.len(),
+        std::path::Path::new(path).with_extension("txt").display()
+    );
+    std::process::exit(2);
+}
+
+/// A text capture: write it, check it when asked, and exit.
+fn finish_text_capture(
+    path: &str,
+    written: std::io::Result<std::path::PathBuf>,
+    args: &harness::Args,
+) -> ! {
+    wrote(path, written);
+    check_problems(path, args);
+    std::process::exit(0);
+}
+
+fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> ! {
+    wrote(path, written);
     std::process::exit(0);
 }
 

@@ -53,4 +53,4 @@ runtime pairs.
 | `wall` | `Wall` — square tiles packed densely by priority, that shuffle with easing when the priorities change |
 | `wallet_connection` | `Connection` — one wallet connection's lifecycle as a state machine, the same on every chain: asked, answered, refused, failed, let go |
 | `wallet_modal` | `WalletModal` — a wallet connector a game opens from one button: which chain, which wallet, then what the wallet answered, on one card that glides between the steps |
-| `web` | `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone), shipped with the kit and stamped by a game's `build.rs` |
+| `web` | `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone, the app shell's page half), shipped with the kit and stamped by a client's `build.rs` |

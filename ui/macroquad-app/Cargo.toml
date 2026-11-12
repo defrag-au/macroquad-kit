@@ -27,7 +27,8 @@ ui-theme = { workspace = true, features = ["macroquad"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
-# Plugin bridge — JsObject transport between Rust and js/app.js.
+# Plugin bridge — JsObject transport between Rust and the app shell's page
+# script (`gamekit-app-shell.js`).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 sapp-jsutils = "0.1"
 
@@ -39,3 +40,7 @@ ureq = "2"
 [[example]]
 name = "shell"
 path = "examples/shell.rs"
+
+[[example]]
+name = "form"
+path = "examples/form.rs"

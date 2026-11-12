@@ -18,10 +18,12 @@
 //! - **Machinery an app shell needs, built once:** the route in the page's
 //!   hash and the back button ([`Router`]), the safe area and the keyboard
 //!   ([`Insets`]), a real text field with the phone's own keyboard
-//!   ([`TextField`]), HTTP with any method and the reply's status ([`http`]),
-//!   a request read into a screen's type and its loading state ([`Load`]), a
-//!   page that scrolls as a whole ([`Page`]), a virtualised grid
-//!   ([`ArtGrid`]), toasts ([`Toasts`]), the app bar and the navigation bar.
+//!   ([`TextField`]), a multi-line one that grows and scrolls ([`TextArea`]),
+//!   HTTP with any method and the reply's status ([`http`]), a request read
+//!   into a screen's type and its loading state ([`Load`]), a page that scrolls
+//!   as a whole ([`Page`]), a virtualised grid ([`ArtGrid`]), a virtualised
+//!   fixed-row list ([`List`]), toasts ([`Toasts`]), the app bar and the
+//!   navigation bar.
 //! - **Still no layout engine.** Rects are computed by the app, as they are
 //!   everywhere else on macroquad. [`shell_layout`] answers the one layout
 //!   every screen shares; a screen lays out its own body.
@@ -33,8 +35,10 @@
 //!
 //! # The page
 //!
-//! `js/app.js` is a miniquad plugin ([`PLUGIN_JS`]): stamp it into the web
-//! directory from `build.rs`, as every plugin is, and the bundler stages it.
+//! The app shell's page half is a miniquad plugin ([`PLUGIN_JS`]): stamp it
+//! into the web directory as `gamekit-app-shell.js` from `build.rs`, as every
+//! plugin is, and the bundler stages it. Its source is
+//! `gaming/macroquad-gamekit/js/app-shell.js`.
 //! Natively each service has a plain-Rust stand-in, so an app runs, is
 //! captured and is tested off the web: an in-memory history (`--route` opens
 //! a deep screen), insets from `--insets`, a text field that reads the
@@ -49,9 +53,11 @@ pub mod http;
 pub mod input;
 pub mod insets;
 pub mod layout;
+pub mod list;
 pub mod load;
 pub mod nav;
 pub mod page;
+pub mod text_area;
 pub mod toast;
 
 pub use app_bar::{AppBar, BarAction, BarHit, Leading, icon_button};
@@ -63,9 +69,11 @@ pub use http::{HttpError, Method, Pending, Request, Response};
 pub use input::{FIELD_H, FieldKind, FieldReply, Keyboard, TextField};
 pub use insets::Insets;
 pub use layout::{BAR_H, NAV_H, NavPlace, RAIL_W, ShellLayout, shell_layout};
+pub use list::{List, ListGeometry, ListSpec};
 pub use load::{Fetch, Load};
 pub use nav::{NavItem, bottom_nav, nav_rail};
 pub use page::Page;
+pub use text_area::{TEXT_AREA_MAX_H, TEXT_AREA_MIN_H, TextArea, TextAreaReply, TextAreaSpec};
 pub use toast::{Toast, Toasts, Tone};
 
 /// JavaScript source for the miniquad plugin. Stamp it into the web
@@ -73,17 +81,25 @@ pub use toast::{Toast, Toasts, Tone};
 /// against:
 ///
 /// ```ignore
-/// fs::write(web.join("app.js"), macroquad_app::PLUGIN_JS)?;
+/// fs::write(web.join("gamekit-app-shell.js"), macroquad_app::PLUGIN_JS)?;
 /// ```
-pub const PLUGIN_JS: &str = include_str!("../js/app.js");
+///
+/// A build script can also stamp it through the gamekit, which does not compile
+/// this crate (and its native HTTP stack) for the host:
+///
+/// ```ignore
+/// use macroquad_gamekit::web::{PageScript, stamp_scripts};
+/// stamp_scripts(web, &[PageScript::AppShell])?;
+/// ```
+pub const PLUGIN_JS: &str = macroquad_gamekit::web::APP_SHELL_JS;
 
-/// Plugin handshake for `gl.js`: `version` in `js/app.js` must match, so a
+/// Plugin handshake for `gl.js`: `version` in the page script must match, so a
 /// page carrying an older copy fails at instantiate rather than calling a
 /// function gl.js would stub out.
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 extern "C" fn app_shell_crate_version() -> u32 {
-    1
+    3
 }
 
 /// A colour as CSS reads it, for the page's own input to match the canvas.
@@ -123,6 +139,6 @@ mod tests {
     #[test]
     fn the_plugin_names_itself_as_the_handshake_does() {
         assert!(PLUGIN_JS.contains("name: 'app_shell'"));
-        assert!(PLUGIN_JS.contains("version: 1,"));
+        assert!(PLUGIN_JS.contains("version: 3,"));
     }
 }

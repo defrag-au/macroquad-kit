@@ -6,10 +6,11 @@
 //             back gesture goes back inside the app instead of leaving it.
 // - insets:   the safe area (a notch, a home indicator) and the height the
 //             soft keyboard takes, in CSS pixels, which are the app's points.
-// - input:    one real <input> laid over the canvas while a field is being
-//             edited, so a phone shows its own keyboard, autocorrect, paste
-//             and IME. Focused from inside the tap's own handler, because a
-//             phone opens its keyboard only for a focus a gesture made.
+// - input:    one real <input> or <textarea> laid over the canvas while a
+//             field is being edited, so a phone shows its own keyboard,
+//             autocorrect, paste and IME. Focused from inside the tap's own
+//             handler, because a phone opens its keyboard only for a focus a
+//             gesture made.
 // - http:     a request with any method, headers and a binary body, whose
 //             reply keeps its status, polled by id like every other plugin.
 //
@@ -106,64 +107,133 @@
     //
     // Each frame the app names the fields it drew (`app_input_zone`, after
     // `app_input_zones_clear`), with each field's text box as fractions of
-    // the canvas. A tap that ends in one shows the input over that box and
-    // focuses it from this handler. While a field is being edited the input
-    // follows its box every frame, so a page that scrolls carries it along;
-    // a field the app stops naming loses the focus.
+    // the canvas. A tap that ends in one shows a real `<input>` — or a
+    // `<textarea>` for a multi-line field — over that box and focuses it from
+    // this handler. While a field is being edited the element follows its box
+    // every frame, so a page that scrolls carries it along; a field the app
+    // stops naming loses the focus.
     //
-    // While editing, the input owns the text: the value the app passes is
+    // While editing, the element owns the text: the value the app passes is
     // only taken when editing starts, or when the app sets it on purpose
-    // (`app_input_set`, a clear button).
+    // (`app_input_set`, a clear button). The app reads the text, the caret and
+    // a textarea's own scroll back each frame so its model agrees with what
+    // the reader sees.
 
-    let zones = new Map();        // id -> { box, value, placeholder, kind, font, color }
+    let zones = new Map();        // id -> { box, value, placeholder, kind, font, color, multiline, maxLen }
     let nextZones = new Map();
     let focused = -1;             // the id being edited, or -1
-    let submits = 0;              // Enter presses, ever
-    let input = null;
+    let wanted = -1;              // a field the app asked to focus, when it is drawn
+    let submits = 0;              // submit presses, ever
+    let field = null;             // the real <input> or <textarea> over the canvas
+    let fieldMultiline = false;   // which of the two `field` is
+    let revealCaret = 0;          // frames to keep a new textarea scrolled to its caret
+    let clip = null;              // the box the app's visible area clips the field to
+    let zoneClip = [0, 0, 1, 1];  // that area, as canvas fractions
+    let inputFont = '';           // the app's face, as a CSS family stack
 
-    function ensureInput() {
-        if (input) return input;
-        input = document.createElement('input');
-        input.type = 'text';
-        input.setAttribute('autocomplete', 'off');
-        input.setAttribute('spellcheck', 'false');
-        input.style.cssText = 'position:fixed;display:none;margin:0;padding:0;border:0;'
-            + 'outline:none;background:transparent;z-index:10;box-sizing:border-box;'
-            + 'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
+    const FALLBACK_FONT = 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
+
+    function ensureClip() {
+        if (clip) return clip;
+        // The canvas is the whole surface the app draws, so the field is
+        // clipped to it: a field scrolled under the app bar, or off the page,
+        // is cut the way the canvas cuts its own drawing instead of floating
+        // over the chrome. The wrapper takes no pointer, so taps reach the
+        // canvas as before.
+        clip = document.createElement('div');
+        clip.style.cssText = 'position:fixed;display:none;overflow:hidden;'
+            + 'pointer-events:none;z-index:10;';
+        document.body.appendChild(clip);
+        return clip;
+    }
+
+    function makeField(multiline) {
+        const el = document.createElement(multiline ? 'textarea' : 'input');
+        if (multiline) {
+            el.setAttribute('autocomplete', 'off');
+            el.setAttribute('wrap', 'soft');
+            el.spellcheck = true;
+        } else {
+            el.type = 'text';
+            el.setAttribute('autocomplete', 'off');
+            el.setAttribute('spellcheck', 'false');
+        }
+        el.style.cssText = 'position:absolute;display:block;margin:0;padding:0;border:0;'
+            + 'outline:none;background:transparent;box-sizing:border-box;'
+            + 'font-family:' + FALLBACK_FONT + ';';
         // miniquad's page cancels every paste at the window, for its own
         // clipboard. Stopping the event here, before it bubbles there, lets
-        // the input take what was pasted.
-        input.addEventListener('paste', function (e) { e.stopPropagation(); });
-        input.addEventListener('keydown', function (e) {
+        // the field take what was pasted.
+        el.addEventListener('paste', function (e) { e.stopPropagation(); });
+        el.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
-                submits += 1;
-                e.preventDefault();
-                input.blur();
+                // Return is a newline in a textarea; Ctrl/Cmd+Enter submits.
+                if (!multiline || e.metaKey || e.ctrlKey) {
+                    submits += 1;
+                    e.preventDefault();
+                    el.blur();
+                }
             } else if (e.key === 'Escape') {
                 e.preventDefault();
-                input.blur();
+                el.blur();
             }
         });
-        input.addEventListener('blur', function () {
+        el.addEventListener('blur', function () {
             focused = -1;
-            input.style.display = 'none';
+            if (clip) clip.style.display = 'none';
             const c = canvasEl();
             // Back to the canvas, so the app's own keys work again. A phone
             // does not reopen a keyboard for a canvas.
             if (c) c.focus({ preventScroll: true });
         });
-        document.body.appendChild(input);
-        return input;
+        ensureClip().appendChild(el);
+        return el;
+    }
+
+    // A screen can hold single-line and multi-line fields, and a reader can
+    // move between them, so the element is made for the focus and reused until
+    // the next field wants the other kind.
+    function ensureField(multiline) {
+        if (field && fieldMultiline === multiline) return field;
+        if (field) {
+            field.blur();
+            field.remove();
+        }
+        fieldMultiline = multiline;
+        field = makeField(multiline);
+        return field;
     }
 
     function place(el, box) {
         const c = canvasEl();
         if (!c) return;
         const r = c.getBoundingClientRect();
-        el.style.left = (r.left + box[0] * r.width) + 'px';
-        el.style.top = (r.top + box[1] * r.height) + 'px';
+        // The app says which rect its fields are drawn in (the body, not the
+        // window); the input is clipped to it and positioned inside it.
+        const cx = r.left + zoneClip[0] * r.width;
+        const cy = r.top + zoneClip[1] * r.height;
+        const cw = Math.max(0, (zoneClip[2] - zoneClip[0]) * r.width);
+        const ch = Math.max(0, (zoneClip[3] - zoneClip[1]) * r.height);
+        if (clip) {
+            clip.style.left = cx + 'px';
+            clip.style.top = cy + 'px';
+            clip.style.width = cw + 'px';
+            clip.style.height = ch + 'px';
+        }
+        el.style.left = (box[0] * r.width - (cx - r.left)) + 'px';
+        el.style.top = (box[1] * r.height - (cy - r.top)) + 'px';
         el.style.width = ((box[2] - box[0]) * r.width) + 'px';
         el.style.height = ((box[3] - box[1]) * r.height) + 'px';
+    }
+
+    // A textarea's own scroll cannot be set until it has the box it was given
+    // and the face it draws in has loaded; both this file's callers run again
+    // when those settle.
+    function revealEnd(el) {
+        try {
+            el.setSelectionRange(el.selectionStart, el.selectionEnd);
+        } catch (e) { /* some input modes refuse a selection */ }
+        el.scrollTop = el.scrollHeight;
     }
 
     function styleFor(el, z) {
@@ -172,6 +242,7 @@
         el.style.fontSize = Math.max(16, z.font) + 'px';
         el.style.color = z.color;
         el.style.caretColor = z.color;
+        el.style.fontFamily = inputFont || FALLBACK_FONT;
         el.placeholder = z.placeholder;
         // 1: search (the keyboard's key says Search), 2: an address or an id
         // (no capitals, no autocorrect).
@@ -179,21 +250,37 @@
         el.setAttribute('autocapitalize', z.kind === 2 ? 'off' : 'sentences');
         el.setAttribute('autocorrect', z.kind === 2 ? 'off' : 'on');
         el.inputMode = z.kind === 1 ? 'search' : 'text';
+        if (z.multiline) {
+            el.style.whiteSpace = 'pre-wrap';
+            el.style.overflowY = 'auto';
+            el.style.resize = 'none';
+            // Roughly the canvas's line advance; the two faces measure
+            // differently, so a capture and a browser can wrap a word apart.
+            el.style.lineHeight = '1.45';
+            el.spellcheck = z.kind !== 2;
+            el.maxLength = z.maxLen > 0 ? z.maxLen : -1;
+        }
     }
 
     function startEditing(id) {
         const z = zones.get(id);
         if (!z) return;
-        const el = ensureInput();
+        const el = ensureField(!!z.multiline);
         styleFor(el, z);
         el.value = z.value;
-        el.style.display = 'block';
+        ensureClip();
+        clip.style.display = 'block';
         place(el, z.box);
         focused = id;
         el.focus({ preventScroll: true });
         try {
-            el.setSelectionRange(el.value.length, el.value.length);
+            const end = el.value.length;
+            el.setSelectionRange(end, end);
         } catch (e) { /* some input modes refuse a selection */ }
+        // The box is set after this call, and a named face may still be
+        // loading; the first placements and the face's load both call
+        // `revealEnd`.
+        revealCaret = 2;
     }
 
     document.addEventListener('pointerup', function (e) {
@@ -215,25 +302,45 @@
         nextZones = new Map();
     }
 
-    function app_input_zone(id, x0, y0, x1, y1, value_js, placeholder_js, kind, font, color_js) {
+    // The rect the app draws its fields in, as canvas fractions: the input is
+    // clipped to it, so a field under the app bar does not float over it.
+    function app_input_clip(x0, y0, x1, y1) {
+        if (x1 > x0 && y1 > y0) zoneClip = [x0, y0, x1, y1];
+    }
+
+    function app_input_zone(id, x0, y0, x1, y1, value_js, placeholder_js, kind, font, color_js,
+        multiline, maxLen) {
         const value = consume_js_object(value_js);
         const placeholder = consume_js_object(placeholder_js);
         const color = consume_js_object(color_js);
         if (x1 <= x0 || y1 <= y0) return;
-        nextZones.set(id, { box: [x0, y0, x1, y1], value, placeholder, kind, font, color });
+        nextZones.set(id, {
+            box: [x0, y0, x1, y1], value, placeholder, kind, font, color,
+            multiline: !!multiline, maxLen: maxLen | 0,
+        });
     }
 
-    // The frame's zones are complete: swap them in, and keep the input on
-    // its field, or let it go if the field is gone.
+    // The frame's zones are complete: swap them in, and keep the field on
+    // its box, or let it go if the field is gone.
     function app_input_zones_done() {
         zones = nextZones;
-        if (focused < 0 || !input) return;
+        if (wanted >= 0 && zones.has(wanted)) {
+            startEditing(wanted);
+            wanted = -1;
+        }
+        if (focused < 0 || !field) return;
         const z = zones.get(focused);
         if (!z) {
-            input.blur();
+            field.blur();
             return;
         }
-        place(input, z.box);
+        place(field, z.box);
+        if (revealCaret > 0) {
+            revealCaret -= 1;
+            if (fieldMultiline) {
+                revealEnd(field);
+            }
+        }
     }
 
     function app_input_focused() {
@@ -241,12 +348,17 @@
     }
 
     function app_input_value() {
-        return js_object(input ? input.value : '');
+        return js_object(field ? field.value : '');
     }
 
     function app_input_set(value_js) {
         const value = consume_js_object(value_js);
-        if (input) input.value = value;
+        if (!field) return;
+        field.value = value;
+        try {
+            const end = field.value.length;
+            field.setSelectionRange(end, end);
+        } catch (e) { /* some input modes refuse a selection */ }
     }
 
     function app_input_submits() {
@@ -254,7 +366,56 @@
     }
 
     function app_input_blur() {
-        if (input && focused >= 0) input.blur();
+        if (field && focused >= 0) field.blur();
+    }
+
+    // The caret and the selection's other end in UTF-16 units, and how far a
+    // textarea has scrolled inside itself in CSS pixels. The element survives
+    // the blur (it is reused or removed on the next focus), so the app can read
+    // where the reader left the caret on the frame the focus went.
+    function app_input_caret() {
+        if (!field) return -1;
+        return field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd;
+    }
+
+    function app_input_anchor() {
+        if (!field) return -1;
+        return field.selectionDirection === 'backward' ? field.selectionEnd : field.selectionStart;
+    }
+
+    function app_input_scroll() {
+        return field ? Math.max(0, field.scrollTop) : 0;
+    }
+
+    // The app's face, named once: the canvas draws it from bytes the page
+    // cannot see, so the page fetches the same file (`mq-bundle --assets`)
+    // and draws the input in it. Until it loads, the fallback stack stays.
+    function app_input_font(family_js, url_js) {
+        const family = consume_js_object(family_js);
+        const url = consume_js_object(url_js);
+        if (!family || !url || inputFont) return;
+        inputFont = '"' + family.replace(/"/g, '') + '", ' + FALLBACK_FONT;
+        if (field) field.style.fontFamily = inputFont;
+        if (typeof FontFace !== 'function') return;
+        const face = new FontFace(family, 'url("' + url.replace(/"/g, '%22') + '")');
+        face.load().then(function (loaded) {
+            document.fonts.add(loaded);
+            if (field) field.style.fontFamily = inputFont;
+            // The new face re-wraps the text, so a long note focused at its
+            // end has to be scrolled again.
+            if (field && fieldMultiline && focused >= 0) revealEnd(field);
+        }).catch(function () { /* the fallback stack stays */ });
+    }
+
+    // Focus a field once the app has drawn it, for a capture or a screen that
+    // opens on its first field. A negative id puts the keyboard away.
+    function app_input_focus(id) {
+        if (id < 0) {
+            wanted = -1;
+            if (field && focused >= 0) field.blur();
+            return;
+        }
+        wanted = id;
     }
 
     // ── HTTP ────────────────────────────────────────────────────────────────
@@ -331,6 +492,7 @@
         importObject.env.app_history_pops = app_history_pops;
         importObject.env.app_inset = app_inset;
         importObject.env.app_input_zones_clear = app_input_zones_clear;
+        importObject.env.app_input_clip = app_input_clip;
         importObject.env.app_input_zone = app_input_zone;
         importObject.env.app_input_zones_done = app_input_zones_done;
         importObject.env.app_input_focused = app_input_focused;
@@ -338,6 +500,11 @@
         importObject.env.app_input_set = app_input_set;
         importObject.env.app_input_submits = app_input_submits;
         importObject.env.app_input_blur = app_input_blur;
+        importObject.env.app_input_focus = app_input_focus;
+        importObject.env.app_input_font = app_input_font;
+        importObject.env.app_input_caret = app_input_caret;
+        importObject.env.app_input_anchor = app_input_anchor;
+        importObject.env.app_input_scroll = app_input_scroll;
         importObject.env.app_http = app_http;
         importObject.env.app_http_state = app_http_state;
         importObject.env.app_http_status = app_http_status;
@@ -349,5 +516,5 @@
     // Bumped with every change to the functions above, with the Rust export
     // beside it, so a page carrying an older copy fails at instantiate rather
     // than calling a function gl.js stubbed out.
-    miniquad_add_plugin({ register_plugin, version: 1, name: 'app_shell' });
+    miniquad_add_plugin({ register_plugin, version: 3, name: 'app_shell' });
 })();

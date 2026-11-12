@@ -16,7 +16,8 @@ use macroquad::prelude::*;
 /// The rounded fills, outlines and clipped art live in the widgets, where the
 /// sheet chrome draws with them too; the kit's callers keep reaching them here.
 pub use macroquad_widgets::shape::{
-    cover_source, fill_rounded, fill_texture_rounded, stroke_rounded,
+    cover_source, draw_arc, draw_circle, draw_circle_lines, fill_rounded, fill_texture_rounded,
+    stroke_rounded,
 };
 
 const VERTEX: &str = r#"#version 100

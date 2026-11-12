@@ -25,7 +25,9 @@ const FOOT: f32 = 24.0;
 #[derive(Clone, Debug, Default)]
 pub struct Page {
     scroll: Scroll,
-    content: f32,
+    /// How tall the layout came to, once [`Page::end`] has seen one. Unknown
+    /// before the first frame, so a position set then is not clamped to 0.
+    content: Option<f32>,
 }
 
 impl Page {
@@ -43,15 +45,15 @@ impl Page {
         tap: Option<Vec2>,
         dt: f32,
     ) -> (f32, Option<Vec2>) {
-        let max = (self.content - area.h).max(0.0);
-        self.scroll.update(area, input, Some(max), dt);
+        let max = self.content.map(|content| (content - area.h).max(0.0));
+        self.scroll.update(area, input, max, dt);
         let tap = self.scroll.filter_tap(tap).filter(|t| area.contains(*t));
         (area.y - self.scroll.offset(), tap)
     }
 
     /// The layout that began at `top` finished at `bottom`.
     pub fn end(&mut self, top: f32, bottom: f32) {
-        self.content = bottom - top + FOOT;
+        self.content = Some(bottom - top + FOOT);
     }
 
     /// How far the page has scrolled: what an app bar's lift reads.
@@ -62,6 +64,36 @@ impl Page {
     /// Back to the top, as a tab tapped while on it does.
     pub fn scroll_home(&mut self) {
         self.scroll.set(0.0);
+    }
+
+    /// Jump to `offset` in the content, stopping any coast: a position
+    /// restored from a route, or a capture that shows a scrolled screen.
+    /// Clamped on the next [`Page::begin`], once the height is known — before
+    /// the first [`Page::end`] it is kept, so a route can open mid-page.
+    pub fn set(&mut self, offset: f32) {
+        self.scroll.set(offset);
+    }
+
+    /// Scroll so `rect` — a caret's box in screen units, as
+    /// [`crate::TextArea::caret_rect`] reports it — is inside the page above a
+    /// band of `reserve` points at the bottom, which is the keyboard.
+    ///
+    /// Pass 0 when the page is already drawn in a body that [`crate::shell_layout`]
+    /// shortened for the keyboard, and the keyboard's height when the page runs
+    /// the whole window under it. Applied by the next [`Page::begin`]: the
+    /// layout that reported the caret has already been drawn at this frame's
+    /// offset.
+    pub fn reveal(&mut self, area: Rect, rect: Rect, reserve: f32) {
+        let top = area.y - self.offset();
+        let content_top = rect.y - top;
+        let content_bottom = rect.bottom() - top;
+        let limit = (area.h - reserve).max(0.0);
+        let shown = self.offset();
+        if content_top < shown {
+            self.scroll.set(content_top);
+        } else if content_bottom > shown + limit {
+            self.scroll.set(content_bottom - limit);
+        }
     }
 }
 
@@ -95,6 +127,51 @@ mod tests {
         assert_eq!(page.offset(), 1000.0 + FOOT - AREA.h);
         let (top, _) = page.begin(AREA, &drag(-900.0), None, 1.0 / 60.0);
         assert_eq!(top, AREA.y - page.offset());
+    }
+
+    #[test]
+    fn a_page_can_be_placed_at_a_position() {
+        let mut page = Page::new();
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        page.end(top, top + 1000.0);
+        page.set(200.0);
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 200.0);
+        assert_eq!(top, AREA.y - 200.0);
+        // A position past the end is clamped when the frame lays out.
+        page.set(10_000.0);
+        page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 1000.0 + FOOT - AREA.h);
+    }
+
+    #[test]
+    fn a_position_set_before_the_first_frame_is_kept() {
+        let mut page = Page::new();
+        page.set(200.0);
+        // The height is not known yet, so the offset is not clamped to 0.
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 200.0);
+        assert_eq!(top, AREA.y - 200.0);
+        // Once the layout has reported its height, a set past the end clamps.
+        page.end(top, top + 1000.0);
+        page.set(10_000.0);
+        page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 1000.0 + FOOT - AREA.h);
+    }
+
+    #[test]
+    fn reveal_brings_a_caret_above_the_keyboard() {
+        let mut page = Page::new();
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        page.end(top, top + 1000.0);
+        // A caret 400 into the content, on a page showing 300 above the band.
+        page.reveal(AREA, Rect::new(0.0, 500.0, 1.5, 17.0), 300.0);
+        let (top, _) = page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 117.0, "the caret's bottom sits on the band");
+        // A caret that scrolled above the page brings it back down.
+        page.reveal(AREA, Rect::new(0.0, top + 20.0, 1.5, 17.0), 300.0);
+        page.begin(AREA, &ScrollInput::none(), None, 0.0);
+        assert_eq!(page.offset(), 20.0);
     }
 
     #[test]

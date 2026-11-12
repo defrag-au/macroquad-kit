@@ -2,7 +2,8 @@
 //! own keyboard: its autocorrect, its paste, its IME and its Search key.
 //!
 //! On the web the canvas cannot take text, so while a field is being edited a
-//! real `<input>` sits exactly over the field's text box (`js/app.js`): the
+//! real `<input>` sits exactly over the field's text box (the app shell's page
+//! script, stamped as `gamekit-app-shell.js`): the
 //! canvas draws the field's chrome around it, and the page draws the text and
 //! the caret. A phone opens its keyboard only for a focus a tap made, so the
 //! field names its box to the page every frame, and the page focuses the input
@@ -21,10 +22,17 @@
 //! While editing, the page's input owns the text; the field reads it back each
 //! frame. [`TextField::set`] replaces it on purpose (a clear button, a value
 //! restored from the route).
+//!
+//! [`crate::TextArea`] edits through this same [`Keyboard`] and page element:
+//! it names itself multi-line, the page draws a `<textarea>`, and the arrows,
+//! Home and End, Delete, selection and clipboard chords the keyboard carries
+//! drive its caret.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
 use macroquad_gamekit::Frame;
 use macroquad_gamekit::clip::with_clip;
+use macroquad_widgets::draw_circle;
 use macroquad_widgets::{Align, Painter, fill_rounded, stroke_rounded};
 use ui_theme::TextSize;
 
@@ -42,9 +50,9 @@ pub enum FieldKind {
 }
 
 impl FieldKind {
-    /// The code `js/app.js` reads.
+    /// The code the app shell's page script reads.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    fn code(self) -> u32 {
+    pub(crate) fn code(self) -> u32 {
         match self {
             FieldKind::Text => 0,
             FieldKind::Search => 1,
@@ -65,12 +73,13 @@ pub struct FieldReply {
 }
 
 #[cfg(target_arch = "wasm32")]
-mod page {
+pub(crate) mod page {
     use sapp_jsutils::JsObject;
 
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {
         fn app_input_zones_clear();
+        fn app_input_clip(x0: f32, y0: f32, x1: f32, y1: f32);
         #[allow(clippy::too_many_arguments)]
         fn app_input_zone(
             id: u32,
@@ -83,6 +92,8 @@ mod page {
             kind: u32,
             font: f32,
             color: JsObject,
+            multiline: u32,
+            max_len: u32,
         );
         fn app_input_zones_done();
         fn app_input_focused() -> i32;
@@ -90,10 +101,20 @@ mod page {
         fn app_input_set(value: JsObject);
         fn app_input_submits() -> u32;
         fn app_input_blur();
+        fn app_input_focus(id: u32);
+        fn app_input_font(family: JsObject, url: JsObject);
+        fn app_input_caret() -> f32;
+        fn app_input_anchor() -> f32;
+        fn app_input_scroll() -> f32;
     }
 
     pub fn clear() {
         unsafe { app_input_zones_clear() }
+    }
+
+    pub fn clip(frac: [f32; 4]) {
+        let [x0, y0, x1, y1] = frac;
+        unsafe { app_input_clip(x0, y0, x1, y1) }
     }
 
     pub struct Zone<'a> {
@@ -104,6 +125,10 @@ mod page {
         pub kind: u32,
         pub font: f32,
         pub color: &'a str,
+        /// The field takes several lines: the page draws a `<textarea>`.
+        pub multiline: bool,
+        /// The most characters it takes, or 0 for no limit.
+        pub max_len: u32,
     }
 
     pub fn zone(z: Zone) {
@@ -120,6 +145,8 @@ mod page {
                 z.kind,
                 z.font,
                 JsObject::string(z.color),
+                z.multiline as u32,
+                z.max_len,
             )
         }
     }
@@ -149,6 +176,30 @@ mod page {
     pub fn blur() {
         unsafe { app_input_blur() }
     }
+
+    pub fn focus(id: u32) {
+        unsafe { app_input_focus(id) }
+    }
+
+    pub fn font(family: &str, url: &str) {
+        unsafe { app_input_font(JsObject::string(family), JsObject::string(url)) }
+    }
+
+    /// The caret in the field's text, in UTF-16 units, or -1 when there is no
+    /// input. The app's model stores byte offsets; `TextArea` converts.
+    pub fn caret() -> f32 {
+        unsafe { app_input_caret() }
+    }
+
+    /// The selection's other end, in UTF-16 units, or -1.
+    pub fn anchor() -> f32 {
+        unsafe { app_input_anchor() }
+    }
+
+    /// How far a `<textarea>` has scrolled inside its box, in CSS pixels.
+    pub fn scroll_top() -> f32 {
+        unsafe { app_input_scroll() }
+    }
 }
 
 /// The app's one keyboard: which field is being edited, and this frame's
@@ -156,29 +207,59 @@ mod page {
 #[derive(Debug, Default)]
 pub struct Keyboard {
     /// The field being edited this frame.
-    focused: Option<u32>,
+    pub(crate) focused: Option<u32>,
     /// The field that was being edited last frame: an Enter is its.
-    was_focused: Option<u32>,
+    pub(crate) was_focused: Option<u32>,
     /// Enter was pressed since last frame.
-    submitted: bool,
+    pub(crate) submitted: bool,
     /// Window points per stage unit, and the stage's origin in the window:
     /// how a field's rect becomes a box on the page.
     u: f32,
     origin: Vec2,
+    /// The face the page's input draws in, and the URL it fetches.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    page_font: Option<(String, String)>,
+    /// The page has been told the face.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    font_sent: bool,
+    /// The rect the fields are drawn in, for the page's input clip.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    clip: Option<Rect>,
     #[cfg(target_arch = "wasm32")]
     seen_submits: u32,
     /// Native: this frame's typing.
     #[cfg(not(target_arch = "wasm32"))]
-    typed: Typed,
+    pub(crate) typed: Typed,
 }
 
-/// Native: what the keyboard did this frame.
+/// Native: what the keyboard did this frame. Edges, so a field reads each once:
+/// a single-line field takes only the typing, a text area the movement and
+/// selection too.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Default)]
-struct Typed {
-    text: String,
-    backspaces: u32,
-    escape: bool,
+pub(crate) struct Typed {
+    pub(crate) text: String,
+    pub(crate) backspaces: u32,
+    pub(crate) escape: bool,
+    /// Enter without a command key: a text area's newline.
+    pub(crate) enter: bool,
+    /// Enter with Ctrl or Cmd: a text area's submit.
+    pub(crate) submit: bool,
+    /// Delete forward, as opposed to the backspace.
+    pub(crate) delete: bool,
+    pub(crate) left: bool,
+    pub(crate) right: bool,
+    pub(crate) up: bool,
+    pub(crate) down: bool,
+    pub(crate) home: bool,
+    pub(crate) end: bool,
+    /// A shift is held: a move extends the selection.
+    pub(crate) shift: bool,
+    pub(crate) select_all: bool,
+    pub(crate) copy: bool,
+    pub(crate) cut: bool,
+    /// Ctrl/Cmd+V's clipboard, inserted at the caret by a text area.
+    pub(crate) paste: Option<String>,
 }
 
 impl Keyboard {
@@ -203,8 +284,15 @@ impl Keyboard {
         self.u = u;
         self.origin = origin;
         self.was_focused = self.focused;
+        self.clip = None;
         #[cfg(target_arch = "wasm32")]
         {
+            if !self.font_sent
+                && let Some((family, url)) = &self.page_font
+            {
+                page::font(family, url);
+                self.font_sent = true;
+            }
             page::clear();
             self.focused = page::focused();
             let submits = page::submits();
@@ -223,21 +311,46 @@ impl Keyboard {
             if is_key_pressed(KeyCode::Backspace) {
                 self.typed.backspaces += 1;
             }
-            if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
-                self.submitted = true;
-            }
-            self.typed.escape = is_key_pressed(KeyCode::Escape);
+            self.typed.delete = is_key_pressed(KeyCode::Delete);
+            self.typed.left = is_key_pressed(KeyCode::Left);
+            self.typed.right = is_key_pressed(KeyCode::Right);
+            self.typed.up = is_key_pressed(KeyCode::Up);
+            self.typed.down = is_key_pressed(KeyCode::Down);
+            self.typed.home = is_key_pressed(KeyCode::Home);
+            self.typed.end = is_key_pressed(KeyCode::End);
+            self.typed.shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+            let enter = is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter);
             let command = is_key_down(KeyCode::LeftControl)
                 || is_key_down(KeyCode::RightControl)
                 || is_key_down(KeyCode::LeftSuper)
                 || is_key_down(KeyCode::RightSuper);
-            if command && is_key_pressed(KeyCode::V) {
-                // The `v` the chord typed is not text.
-                self.typed.text.retain(|c| c != 'v' && c != 'V');
-                if let Some(pasted) = macroquad::miniquad::window::clipboard_get() {
-                    self.typed
-                        .text
-                        .extend(pasted.chars().filter(|c| !c.is_control()));
+            // A single-line field submits on Enter; a text area takes Enter as
+            // a newline and Ctrl/Cmd+Enter as the submit.
+            self.submitted = enter;
+            self.typed.enter = enter && !command;
+            self.typed.submit = enter && command;
+            self.typed.escape = is_key_pressed(KeyCode::Escape);
+            if command {
+                let chord = |text: &mut String, c: char| {
+                    text.retain(|ch| ch != c && ch != c.to_ascii_uppercase());
+                };
+                // The letter a chord typed is not text.
+                if is_key_pressed(KeyCode::A) {
+                    self.typed.select_all = true;
+                    chord(&mut self.typed.text, 'a');
+                }
+                if is_key_pressed(KeyCode::C) {
+                    self.typed.copy = true;
+                    chord(&mut self.typed.text, 'c');
+                }
+                if is_key_pressed(KeyCode::X) {
+                    self.typed.cut = true;
+                    chord(&mut self.typed.text, 'x');
+                }
+                if is_key_pressed(KeyCode::V) {
+                    chord(&mut self.typed.text, 'v');
+                    self.typed.paste = macroquad::miniquad::window::clipboard_get()
+                        .map(|pasted| pasted.chars().filter(|c| !c.is_control()).collect());
                 }
             }
         }
@@ -246,13 +359,66 @@ impl Keyboard {
     /// Call once a frame, after the last field.
     pub fn end(&mut self) {
         #[cfg(target_arch = "wasm32")]
-        page::done();
+        {
+            let frac = match self.clip {
+                Some(rect) => self.fractions(rect),
+                None => [0.0, 0.0, 1.0, 1.0],
+            };
+            page::clip(frac);
+            page::done();
+        }
+        // A phone opens its soft keyboard for a field that has the focus and
+        // puts it away when none has. Every platform that has one gets this;
+        // a desktop's keyboard is always there.
+        #[cfg(target_os = "android")]
+        if self.focused != self.was_focused {
+            macroquad::miniquad::window::show_keyboard(self.focused.is_some());
+        }
+    }
+
+    /// The rect the fields are drawn in — the body a screen clips to.
+    ///
+    /// The page clips its `<input>` to it, so a field scrolled under the app
+    /// bar or off the page is cut exactly as the canvas cuts the field, rather
+    /// than floating over the chrome. Call it once a frame after
+    /// [`Keyboard::begin`] and before the fields; the default is the whole
+    /// stage. The app bar and the navigation are outside it.
+    pub fn clip(&mut self, rect: Rect) {
+        self.clip = Some(rect);
     }
 
     /// Whether any field is being edited: a screen keeps its own key
     /// bindings off while one is.
     pub fn editing(&self) -> bool {
         self.focused.is_some()
+    }
+
+    /// The face the page's `<input>` draws in, and where it fetches it.
+    ///
+    /// The canvas draws a font from bytes the page cannot see, so while a
+    /// field is edited the browser's input would otherwise change face and
+    /// weight under the reader's eyes. Name the same face and a URL the page
+    /// can fetch it from — `mq-bundle --assets <dir>` stages a directory at
+    /// `assets/` beside the page — and the input uses it. A relative URL is
+    /// resolved against the page, so it works under `--base` too. Call once,
+    /// before the first field is drawn; natively it changes nothing.
+    pub fn input_font(&mut self, family: &str, url: &str) {
+        self.page_font = Some((family.to_owned(), url.to_owned()));
+    }
+
+    /// Focus the field `id`, as a tap would.
+    ///
+    /// On the web the page focuses its input as soon as the field is drawn;
+    /// natively the field is edited from this frame. A capture plan can use
+    /// it, through the app's own `setup` lines, to show a field being edited
+    /// and the keyboard-open layout around it.
+    pub fn focus(&mut self, id: u32) {
+        #[cfg(target_arch = "wasm32")]
+        page::focus(id);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.focused = Some(id);
+        }
     }
 
     /// Stop editing, and put the phone's keyboard away.
@@ -262,10 +428,17 @@ impl Keyboard {
         self.focused = None;
     }
 
+    /// Window points per unit the fields are drawn in: what a point size is in
+    /// CSS pixels on the page.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub(crate) fn unit(&self) -> f32 {
+        self.u
+    }
+
     /// `rect` (stage units) as fractions of the canvas, as the page places
     /// its input.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    fn fractions(&self, rect: Rect) -> [f32; 4] {
+    pub(crate) fn fractions(&self, rect: Rect) -> [f32; 4] {
         let screen = vec2(screen_width(), screen_height()).max(Vec2::ONE);
         let a = (rect.point() * self.u + self.origin) / screen;
         let b = ((rect.point() + rect.size()) * self.u + self.origin) / screen;
@@ -356,6 +529,9 @@ impl TextField {
                     self.value.pop();
                 }
                 self.value.push_str(&keyboard.typed.text);
+                if let Some(paste) = &keyboard.typed.paste {
+                    self.value.push_str(paste);
+                }
                 if keyboard.typed.escape {
                     keyboard.focused = None;
                 }
@@ -381,6 +557,8 @@ impl TextField {
             kind: kind.code(),
             font: size * keyboard.u,
             color: &crate::css_rgba(c.text_primary),
+            multiline: false,
+            max_len: 0,
         });
 
         // The chrome.

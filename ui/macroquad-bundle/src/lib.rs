@@ -3,14 +3,14 @@
 //!
 //! ```sh
 //! cargo run -p mq-bundle -- --package <crate> --wasm <bin>.wasm \
-//!     --title "<Title>" --dest <dir> [--web <dir>] [--base /path/] \
+//!     --title "<Title>" --dest <dir> [--web <dir>] [--assets <dir>] [--base /path/] \
 //!     [--shell <template.html>] [--no-build]
 //! cargo run -p mq-bundle -- check <bundle-dir> <file.wasm>
 //! ```
 //!
 //! Each repo has a `tools/mq-bundle` crate whose `main` is [`main`]: cargo
 //! runs only its own workspace's binaries, and that keeps the bundler pinned
-//! by the same shared-crates rev as the game, runnable in CI with only cargo.
+//! by the same macroquad-kit rev as the game, runnable in CI with only cargo.
 //!
 //! Every step exists because skipping it once cost a debugging round:
 //!
@@ -35,7 +35,10 @@
 //!    imports it (sockets *or* HTTP — checking one half once shipped socket
 //!    clients without it), then every `*.js` in `--web`: the crate's own
 //!    plugins, stamped by its `build.rs` from each plugin crate's `PLUGIN_JS`
-//!    (or `macroquad_gamekit::web::stamp`).
+//!    (or `macroquad_gamekit::web::stamp`). Two scripts registering the same
+//!    miniquad plugin is an error: the page loads both, and the second silently
+//!    wins. `--assets <dir>` replaces `<dest>/assets/` with the directory's
+//!    contents, for a file the page fetches — a font for the text input, say.
 //! 5. **Render** `index.html` from the shared shell ([`page::SHELL`]), with
 //!    the wasm content-hashed into `load()`: an unversioned `load("x.wasm")`
 //!    lets a proxy or the browser keep a stale build alive, invisibly.
@@ -64,6 +67,9 @@ pub struct Options {
     pub dest: PathBuf,
     /// The crate's plugin directory: every `*.js` in it is staged.
     pub web: Option<PathBuf>,
+    /// Extra files the page fetches (a font): copied into `<dest>/assets/`,
+    /// which is replaced wholesale each run.
+    pub assets: Option<PathBuf>,
     /// Prefix for every script and the wasm in the page, e.g. `/pump/`.
     pub base: String,
     /// A page template other than the shared shell.
@@ -142,6 +148,96 @@ fn scripts_in(dir: &Path) -> Result<Vec<(String, String)>, String> {
     }
     out.sort();
     Ok(out)
+}
+
+/// The miniquad plugin names a page script registers.
+fn plugin_names(js: &str) -> Vec<String> {
+    const CALL: &str = "miniquad_add_plugin";
+    let mut names = Vec::new();
+    let mut rest = js;
+    while let Some(at) = rest.find(CALL) {
+        rest = &rest[at + CALL.len()..];
+        // The object literal follows and is a few hundred bytes at most, so a
+        // bounded search cannot run into the next call.
+        let window = &rest[..rest.len().min(400)];
+        if let Some(name) = field(window, "name") {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The string value of `key: '…'` or `key: "…"` in `text`, if any.
+fn field(text: &str, key: &str) -> Option<String> {
+    let mut rest = text;
+    loop {
+        let at = rest.find(key)?;
+        let after = rest[at + key.len()..].trim_start();
+        let after = after.strip_prefix(':').map(str::trim_start);
+        let Some(after) = after else {
+            rest = &rest[at + key.len()..];
+            continue;
+        };
+        let (quote, body) = match after.as_bytes().first() {
+            Some(b'\'') => ('\'', &after[1..]),
+            Some(b'"') => ('"', &after[1..]),
+            _ => {
+                rest = &rest[at + key.len()..];
+                continue;
+            }
+        };
+        let end = body.find(quote)?;
+        return Some(body[..end].to_owned());
+    }
+}
+
+/// Refuse two page scripts that register the same miniquad plugin: the page
+/// loads both, and the second wins with no error. A renamed page script left
+/// in the directory is the common cause.
+fn check_plugins(scripts: &[(String, String)]) -> Result<(), String> {
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for (file, text) in scripts {
+        for name in plugin_names(text) {
+            if let Some((_, first)) = seen.iter().find(|(n, _)| *n == name) {
+                return Err(format!(
+                    "{first} and {file} both register the miniquad plugin `{name}`; delete the \
+                     superseded script — the page loads both, and the second wins silently"
+                ));
+            }
+            seen.push((name, file.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// Copy `from`'s contents into `to`, replacing `to` first so a deleted asset
+/// does not linger. Returns how many files were copied.
+fn stage_assets(from: &Path, to: &Path) -> Result<usize, String> {
+    if !from.is_dir() {
+        return Err(format!("--assets {} is not a directory", from.display()));
+    }
+    if to.exists() {
+        std::fs::remove_dir_all(to).map_err(|e| io("remove", to, e))?;
+    }
+    std::fs::create_dir_all(to).map_err(|e| io("create", to, e))?;
+    let mut copied = 0;
+    copy_tree(from, to, &mut copied)?;
+    Ok(copied)
+}
+
+fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> Result<(), String> {
+    for entry in std::fs::read_dir(from).map_err(|e| io("read", from, e))? {
+        let path = entry.map_err(|e| io("read", from, e))?.path();
+        let target = to.join(path.file_name().expect("a file"));
+        if path.is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| io("create", &target, e))?;
+            copy_tree(&path, &target, copied)?;
+        } else {
+            copy(&path, &target)?;
+            *copied += 1;
+        }
+    }
+    Ok(())
 }
 
 fn report_unprovided(
@@ -281,7 +377,9 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
         stage_crate_js("quad-net", "js/quad-net.js", "quad-net.js", true)?;
     }
     if let Some(web) = &opts.web {
-        for (name, text) in scripts_in(web)? {
+        let scripts = scripts_in(web)?;
+        check_plugins(&scripts)?;
+        for (name, text) in scripts {
             if staged.iter().any(|(n, _)| *n == name) {
                 return Err(format!(
                     "{} has its own {name}, which the bundler stages itself; delete it",
@@ -293,6 +391,10 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
         }
     }
     copy(&wasm_path, &dest.join(&opts.wasm))?;
+    if let Some(assets) = &opts.assets {
+        let files = stage_assets(assets, &dest.join("assets"))?;
+        eprintln!("→ staged {files} asset(s) into assets/");
+    }
 
     // 5. The page.
     let hash = Sha256::digest(&wasm_bytes);
@@ -330,7 +432,8 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
 
 const USAGE: &str = "\
 usage: mq-bundle --package <crate> --wasm <bin>.wasm --title <title> --dest <dir>
-                 [--web <dir>] [--base /path/] [--shell <template.html>] [--no-build]
+                 [--web <dir>] [--assets <dir>] [--base /path/] [--shell <template.html>]
+                 [--no-build]
        mq-bundle check <bundle-dir> <file.wasm>";
 
 enum Cli {
@@ -346,7 +449,8 @@ fn parse(args: &[String], cwd: PathBuf) -> Result<Cli, String> {
         };
     }
     let (mut package, mut wasm, mut title, mut dest) = (None, None, None, None);
-    let (mut web, mut shell, mut base, mut build) = (None, None, String::new(), true);
+    let (mut web, mut assets, mut shell, mut base, mut build) =
+        (None, None, None, String::new(), true);
     let mut it = args.iter();
     while let Some(flag) = it.next() {
         let mut value = || {
@@ -360,6 +464,7 @@ fn parse(args: &[String], cwd: PathBuf) -> Result<Cli, String> {
             "--title" => title = Some(value()?),
             "--dest" => dest = Some(PathBuf::from(value()?)),
             "--web" => web = Some(PathBuf::from(value()?)),
+            "--assets" => assets = Some(PathBuf::from(value()?)),
             "--shell" => shell = Some(PathBuf::from(value()?)),
             "--base" => base = value()?,
             "--no-build" => build = false,
@@ -379,6 +484,7 @@ fn parse(args: &[String], cwd: PathBuf) -> Result<Cli, String> {
         title: need(title, "title")?,
         dest: need(dest, "dest")?,
         web,
+        assets,
         base,
         shell,
         build,
@@ -480,5 +586,97 @@ mod tests {
         .expect("write js");
         assert_eq!(check(&dir, "g.wasm"), Ok(2));
         std::fs::remove_dir_all(&dir).expect("clean up");
+    }
+
+    #[test]
+    fn parses_a_bundle_with_assets() {
+        let cli = parse(
+            &args(&[
+                "--package",
+                "p",
+                "--wasm",
+                "p.wasm",
+                "--title",
+                "T",
+                "--dest",
+                "d",
+                "--assets",
+                "app/assets",
+                "--no-build",
+            ]),
+            PathBuf::from("/w"),
+        );
+        let Ok(Cli::Bundle(o)) = cli else {
+            panic!("not a bundle")
+        };
+        assert_eq!(o.assets, Some(PathBuf::from("app/assets")));
+    }
+
+    #[test]
+    fn a_page_scripts_plugin_name_is_read_from_its_registration() {
+        assert_eq!(
+            plugin_names(
+                "miniquad_add_plugin({ register_plugin, version: 1, name: 'app_shell' });"
+            ),
+            ["app_shell"]
+        );
+        // The minified form has no spaces, and a double-quoted name.
+        assert_eq!(
+            plugin_names("miniquad_add_plugin({name:\"gamepads\",version:\"0.1.7\"});"),
+            ["gamepads"]
+        );
+        assert!(plugin_names("function register_plugin() {}").is_empty());
+    }
+
+    #[test]
+    fn two_scripts_registering_one_plugin_are_refused() {
+        let scripts = vec![
+            (
+                "app.js".to_string(),
+                "miniquad_add_plugin({ register_plugin, version: 1, name: 'app_shell' });"
+                    .to_string(),
+            ),
+            (
+                "gamekit-app-shell.js".to_string(),
+                "miniquad_add_plugin({ register_plugin, version: 2, name: 'app_shell' });"
+                    .to_string(),
+            ),
+        ];
+        let err = check_plugins(&scripts).expect_err("the same plugin twice");
+        assert!(err.contains("app.js"), "{err}");
+        assert!(err.contains("gamekit-app-shell.js"), "{err}");
+        assert!(err.contains("app_shell"), "{err}");
+
+        let distinct = vec![
+            ("a.js".to_string(), scripts[0].1.clone()),
+            (
+                "b.js".to_string(),
+                "miniquad_add_plugin({ register_plugin, version: 1, name: 'other' });".to_string(),
+            ),
+        ];
+        assert_eq!(check_plugins(&distinct), Ok(()));
+    }
+
+    #[test]
+    fn assets_are_staged_and_the_directory_is_replaced() {
+        let base = std::env::temp_dir().join(format!("mq-bundle-assets-{}", std::process::id()));
+        let from = base.join("from");
+        let to = base.join("dest/assets");
+        std::fs::create_dir_all(from.join("nested")).expect("mkdir");
+        std::fs::write(from.join("face.ttf"), b"font").expect("write");
+        std::fs::write(from.join("nested/theme.css"), b"body{}").expect("write");
+
+        assert_eq!(stage_assets(&from, &to), Ok(2));
+        assert!(to.join("face.ttf").exists());
+        assert!(to.join("nested/theme.css").exists());
+
+        // A file deleted from the source does not linger in the bundle.
+        std::fs::remove_file(from.join("face.ttf")).expect("remove");
+        assert_eq!(stage_assets(&from, &to), Ok(1));
+        assert!(!to.join("face.ttf").exists());
+        assert!(to.join("nested/theme.css").exists());
+
+        assert!(stage_assets(&base.join("missing"), &to).is_err());
+        std::fs::remove_dir_all(&base).expect("clean up");
     }
 }

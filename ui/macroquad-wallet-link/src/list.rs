@@ -4,9 +4,11 @@
 //! sheet the orbit does.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
 use macroquad_gamekit::Frame;
 use macroquad_gamekit::wallet_modal::{chain_mark, short_address};
 use macroquad_gamekit::with_clip;
+use macroquad_widgets::shape::draw_circle;
 use macroquad_widgets::{
     Align, Line, Painter, Scroll, ScrollInput, TextSize, fill_rounded, stroke_rounded,
 };

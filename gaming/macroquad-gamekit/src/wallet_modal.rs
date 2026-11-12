@@ -87,6 +87,8 @@ use std::f32::consts::TAU;
 
 use macroquad::models::{Mesh, Vertex, draw_mesh};
 use macroquad::prelude::*;
+// The exact discs, rings and arcs: explicit imports shadow the prelude's.
+use macroquad_widgets::shape::{draw_arc, draw_circle, draw_circle_lines};
 use macroquad_widgets::{
     COPIED_SECS, Painter, Pill, PillStyle, SHEET_SIDE_INSET, SheetForm, TextSize, Theme, Trailing,
     WellRow, check_badge, sheet_close, sheet_surface, well, well_height, well_value_width,
