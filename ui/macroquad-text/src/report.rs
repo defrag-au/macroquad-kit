@@ -22,6 +22,10 @@ pub struct Line {
     /// This run is a fit's cut, or its last word: its trailing ellipsis is
     /// deliberate.
     pub cut: bool,
+    /// How many translucent covers (a sheet's scrim) were drawn over it after
+    /// it: text under a scrim is behind what is drawn on top, and two lines
+    /// only collide when they are at the same depth. See [`cover`].
+    pub under: u32,
 }
 
 /// A surface text is drawn on: the screen, or a baked face.
@@ -131,10 +135,51 @@ pub fn push_clip(rect: Rect) {
     STATE.with(|s| s.borrow_mut().clips.push(rect));
 }
 
+/// The clips in force, outermost first, in the units they were opened in: what
+/// the DOM text sink clips a run to.
+pub(crate) fn clips() -> Vec<Rect> {
+    STATE.with(|s| s.borrow().clips.clone())
+}
+
 /// Leave the innermost clip opened by [`push_clip`].
 pub fn pop_clip() {
     STATE.with(|s| {
         s.borrow_mut().clips.pop();
+    });
+}
+
+/// A surface was drawn over the lines recorded so far: `rect` in the current
+/// camera's units, at `opacity`. An opaque one hides the lines it covers and
+/// trims those it partly covers to what still shows; a translucent one (a
+/// scrim) dims the lines mostly under it and puts them a layer down, so text
+/// drawn on top of it is not reported as overlapping them. Lines recorded
+/// after it are untouched. Called through `crate::dom::cover`, which also
+/// tells the DOM sink.
+pub fn cover(rect: Rect, opacity: f32) {
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        if !s.on || s.muted > 0 || opacity <= 0.0 {
+            return;
+        }
+        let origin = s.origin;
+        let (lines, rect) = match s.baking.as_mut() {
+            Some(b) => (&mut b.lines, rect),
+            None => (
+                &mut s.screen.lines,
+                Rect::new(rect.x - origin.x, rect.y - origin.y, rect.w, rect.h),
+            ),
+        };
+        for line in lines.iter_mut().filter(|l| l.alpha > 0.0) {
+            match crate::cover::effect(line.rect, None, rect, opacity) {
+                crate::cover::Effect::Clear => {}
+                crate::cover::Effect::Hidden => line.alpha = 0.0,
+                crate::cover::Effect::Clip(strip) => line.rect = strip,
+                crate::cover::Effect::Dim(k) => {
+                    line.alpha *= k;
+                    line.under += 1;
+                }
+            }
+        }
     });
 }
 
@@ -205,6 +250,7 @@ pub fn line(text: &str, mut rect: Rect, size: f32, alpha: f32) {
             size,
             alpha,
             cut: is_fitted(&s.fitted, text),
+            under: 0,
         };
         let origin = s.origin;
         match s.baking.as_mut() {
@@ -309,6 +355,7 @@ pub fn joined(surface: &Surface) -> Vec<Line> {
             let gap = w.rect.x - last.rect.right();
             let same_line = (last.rect.y - w.rect.y).abs() < 0.5
                 && (last.size - w.size).abs() < 0.01
+                && last.under == w.under
                 && gap >= -0.5
                 && gap < w.size * 0.6;
             if same_line {
@@ -351,6 +398,10 @@ pub fn problems(surface: &Surface) -> Vec<Problem> {
         for b in &lines[i + 1..] {
             // A shadow or outline copy is not a second line.
             if a.text == b.text && a.rect.overlaps(&b.rect) {
+                continue;
+            }
+            // Text under a scrim is behind what is drawn on top of it.
+            if a.under != b.under {
                 continue;
             }
             if let Some(o) = a.rect.intersect(b.rect) {
@@ -527,6 +578,34 @@ mod tests {
     }
 
     #[test]
+    fn text_under_a_scrim_does_not_collide_with_the_sheet_over_it() {
+        screen_at(Vec2::ZERO, vec2(390.0, 844.0));
+        line("PROTOCOL", Rect::new(16.0, 400.0, 80.0, 14.0), 12.0, 1.0);
+        // The scrim over the whole page, then the sheet's card over part of it.
+        cover(Rect::new(0.0, 0.0, 390.0, 844.0), 0.74);
+        line("Brave", Rect::new(20.0, 402.0, 60.0, 14.0), 12.0, 1.0);
+        let (screen, _) = surfaces();
+        assert_eq!(screen.lines[0].under, 1);
+        assert!((screen.lines[0].alpha - 0.26).abs() < 1e-4);
+        assert_eq!(screen.lines[1].under, 0, "drawn after the scrim");
+        assert!(problems(&screen).is_empty(), "{:?}", problems(&screen));
+        reset();
+    }
+
+    #[test]
+    fn an_opaque_cover_hides_what_it_covers_and_trims_what_it_crosses() {
+        screen_at(Vec2::ZERO, vec2(390.0, 844.0));
+        line("behind", Rect::new(16.0, 10.0, 80.0, 14.0), 12.0, 1.0);
+        line("crossing", Rect::new(16.0, 20.0, 80.0, 14.0), 12.0, 1.0);
+        // A tape over the top 26 points.
+        cover(Rect::new(0.0, 0.0, 390.0, 26.0), 1.0);
+        let (screen, _) = surfaces();
+        assert_eq!(screen.lines[0].alpha, 0.0);
+        assert_eq!(screen.lines[1].rect, Rect::new(16.0, 26.0, 80.0, 8.0));
+        reset();
+    }
+
+    #[test]
     fn a_fitted_ellipsis_is_not_a_cut() {
         screen_at(Vec2::ZERO, vec2(200.0, 100.0));
         fitted("A name far…");
@@ -566,6 +645,7 @@ mod tests {
             size: 12.0,
             alpha: 1.0,
             cut: false,
+            under: 0,
         };
         let other = line.clone();
         assert_eq!(Problem::Off { line }.kind(), ProblemKind::Off);

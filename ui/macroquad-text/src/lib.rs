@@ -21,6 +21,8 @@
 //! Sizes are points from the caller, resolved through the theme's ramp; this
 //! crate never writes one down. Time is never read: nothing here animates.
 
+pub mod cover;
+pub mod dom;
 mod gate;
 mod layout;
 mod measure;

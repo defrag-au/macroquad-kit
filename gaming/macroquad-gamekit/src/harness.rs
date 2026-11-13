@@ -1925,6 +1925,7 @@ mod tests {
             size,
             alpha: 1.0,
             cut: false,
+            under: 0,
         }
     }
 

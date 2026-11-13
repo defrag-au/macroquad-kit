@@ -51,6 +51,8 @@ pub fn bottom_nav(
 ) -> Option<usize> {
     let c = &p.theme.color;
     draw_rectangle(band.x, band.y, band.w, band.h, c.bg_secondary);
+    // A page scrolled under the nav is behind it.
+    macroquad_gamekit::text::dom::cover(band, 1.0);
     draw_rectangle(band.x, band.y, band.w, 1.0, c.border);
     if items.is_empty() {
         return None;
@@ -71,6 +73,7 @@ pub fn bottom_nav(
 pub fn nav_rail(p: &Painter, rail: Rect, items: &[NavItem], selected: usize) -> Option<usize> {
     let c = &p.theme.color;
     draw_rectangle(rail.x, rail.y, rail.w, rail.h, c.bg_primary);
+    macroquad_gamekit::text::dom::cover(rail, 1.0);
     draw_rectangle(rail.right() - 1.0, rail.y, 1.0, rail.h, c.border);
     let mut tapped = None;
     for (i, item) in items.iter().enumerate() {

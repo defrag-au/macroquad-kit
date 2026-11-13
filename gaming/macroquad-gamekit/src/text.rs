@@ -14,6 +14,6 @@
 
 pub use macroquad_text::{
     Align, GlyphFlush, MacroquadMeasure, Measure, MeasureAt, Outline, Placed, RichText, Shadow,
-    StyleId, TextLayout, TextStyle, draw_run, enable_glyph_gate, flush_glyphs, glyphs_pending,
+    StyleId, TextLayout, TextStyle, dom, draw_run, enable_glyph_gate, flush_glyphs, glyphs_pending,
     load_font, measure_run, register_font, ungated, warm_font_cache,
 };

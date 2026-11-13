@@ -178,6 +178,9 @@ impl Startup {
     /// after this.
     pub fn finish(&mut self, dt: f32, ready: bool) -> Finished {
         let flushed = flush_glyphs(self.phase.glyph_sizes());
+        // A page drawing the text itself gets this frame's runs now, after the
+        // last of them (a no-op unless the page asked: `macroquad_text::dom`).
+        macroquad_text::dom::flush();
         let went_live = self.phase.observe_flush(flushed, ready);
         self.preloader.update(dt, self.phase.live());
         Finished { flushed, went_live }

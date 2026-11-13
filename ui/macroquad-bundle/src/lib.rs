@@ -33,7 +33,9 @@
 //!    beside a wasm that does not import it.
 //! 4. **Stage** gl.js, sapp_jsutils.js when linked, quad-net.js when the wasm
 //!    imports it (sockets *or* HTTP — checking one half once shipped socket
-//!    clients without it), then every `*.js` in `--web`: the crate's own
+//!    clients without it), macroquad-text's text.js when the wasm imports
+//!    `mqtext_*` (the DOM text sink; inert unless the app registers its fonts),
+//!    then every `*.js` in `--web`: the crate's own
 //!    plugins, stamped by its `build.rs` from each plugin crate's `PLUGIN_JS`
 //!    (or `macroquad_gamekit::web::stamp`). Two scripts registering the same
 //!    miniquad plugin is an error: the page loads both, and the second silently
@@ -375,6 +377,14 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
         .any(|i| i.name.starts_with("ws_") || i.name.starts_with("http_"));
     if wants_net {
         stage_crate_js("quad-net", "js/quad-net.js", "quad-net.js", true)?;
+    }
+    // macroquad-text's DOM sink: every client linking it imports `mqtext_*`, so the page gets
+    // its script here rather than from each client's build. Whether the browser then draws the
+    // text is the app's own opt-in (it registers its fonts) — a client that does not keeps
+    // canvas text, with the script inert.
+    let wants_text = imports.iter().any(|i| i.name.starts_with("mqtext_"));
+    if wants_text {
+        stage_crate_js("macroquad-text", "js/text.js", "text.js", true)?;
     }
     if let Some(web) = &opts.web {
         let scripts = scripts_in(web)?;

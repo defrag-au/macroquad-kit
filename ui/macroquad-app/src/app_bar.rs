@@ -107,6 +107,8 @@ impl<'a> AppBar<'a> {
         let c = &p.theme.color;
         let fill = macroquad_widgets::shape::mix(c.bg_primary, c.bg_secondary, self.raised);
         draw_rectangle(band.x, band.y, band.w, band.h, fill);
+        // A page scrolled under the bar is behind it.
+        macroquad_gamekit::text::dom::cover(band, 1.0);
         if self.raised > 0.0 {
             let edge = with_alpha(c.border, self.raised);
             draw_rectangle(band.x, band.bottom() - 1.0, band.w, 1.0, edge);

@@ -1237,6 +1237,7 @@ name = "macroquad-text"
 version = "0.1.0"
 dependencies = [
  "macroquad",
+ "sapp-jsutils",
 ]
 
 [[package]]

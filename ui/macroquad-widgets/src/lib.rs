@@ -95,7 +95,8 @@ pub use choice_stepper::{ChoiceStepperVm, choice_stepper};
 pub use detail_sheet::{
     BOTTOM_SHEET_BELOW, DetailRow, DetailSheetVm, RowTone, SHEET_SIDE_INSET, Sheet, SheetCard,
     SheetForm, SheetResponse, SheetState, detail_sheet, info_button, sheet_card, sheet_chrome,
-    sheet_close, sheet_content_width, sheet_rect, sheet_surface,
+    sheet_close, sheet_content_width, sheet_content_width_within, sheet_rect, sheet_rect_within,
+    sheet_surface,
 };
 pub use floating_stick::{
     Cardinal, FloatingStick, Release, StickFrame, StickView, floating_stick,
