@@ -21,6 +21,34 @@ use macroquad_widgets::{Scroll, ScrollInput};
 /// Room left under the last thing on a page, so it does not sit on the edge.
 const FOOT: f32 = 24.0;
 
+/// `offset` moved to the nearest whole device pixel, at `scale` device pixels a point.
+///
+/// A coasting scroll is fractional, and a web build's text is the browser's (`macroquad_text`'s
+/// DOM sink), which snaps each glyph to a whole device pixel while the canvas draws the panel
+/// under it wherever the offset falls. Each frame the two then round differently, and the text
+/// wobbles against its panel by up to half a pixel as the page scrolls. On whole device pixels
+/// every frame rounds the same way, so text and panel move together. The scroll itself keeps its
+/// fraction: only where the page is drawn is snapped, so a slow coast is not stalled by it.
+fn on_pixels(offset: f32, scale: Option<f32>) -> f32 {
+    match scale {
+        Some(scale) if scale > 0.0 => (offset * scale).round() / scale,
+        _ => offset,
+    }
+}
+
+/// Device pixels a point, where the snap applies: a web build, whose text the browser draws.
+/// Natively the canvas draws its own glyphs, and the goldens and tests keep the exact offset.
+fn pixel_scale() -> Option<f32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        Some(macroquad::window::screen_dpi_scale())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
 /// See the [module docs](self).
 #[derive(Clone, Debug, Default)]
 pub struct Page {
@@ -48,7 +76,7 @@ impl Page {
         let max = self.content.map(|content| (content - area.h).max(0.0));
         self.scroll.update(area, input, max, dt);
         let tap = self.scroll.filter_tap(tap).filter(|t| area.contains(*t));
-        (area.y - self.scroll.offset(), tap)
+        (area.y - on_pixels(self.scroll.offset(), pixel_scale()), tap)
     }
 
     /// The layout that began at `top` finished at `bottom`.
@@ -114,6 +142,19 @@ mod tests {
             pointer: Vec2::new(200.0, y),
             wheel: Vec2::ZERO,
         }
+    }
+
+    #[test]
+    fn a_page_is_drawn_on_whole_device_pixels_where_the_browser_draws_its_text() {
+        // Two device pixels a point: half-point steps.
+        assert_eq!(on_pixels(10.3, Some(2.0)), 10.5);
+        assert_eq!(on_pixels(10.2, Some(2.0)), 10.0);
+        // One a point, and a fractional scale a zoomed browser reports.
+        assert_eq!(on_pixels(10.6, Some(1.0)), 11.0);
+        assert!((on_pixels(10.3, Some(1.5)) - 10.0).abs() < 1e-4);
+        // Natively there is no snap: the goldens keep the exact offset.
+        assert_eq!(on_pixels(10.3, None), 10.3);
+        assert_eq!(pixel_scale(), None);
     }
 
     #[test]

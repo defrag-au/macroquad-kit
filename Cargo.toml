@@ -100,7 +100,7 @@ macroquad = { git = "https://github.com/not-fl3/macroquad", rev = "8d602d3f8ebb8
 #
 # Pinned to the branch's tip, tagged `headless-2026-11` in the fork; not in a
 # miniquad release yet.
-miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "59178c9744c6881e8d600d787e5a4284ab5ccbdc" }
+miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "1a6023680e9d5d97825590ad576f9b0fcda6d88e" }
 
 # Local development: uncomment the WHOLE block to consume the sibling
 # `shared-crates` checkout instead of the pinned rev. Toggle it as a unit — a

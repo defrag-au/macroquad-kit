@@ -1355,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "miniquad"
 version = "0.4.11"
-source = "git+https://github.com/defrag-au/miniquad?rev=59178c9744c6881e8d600d787e5a4284ab5ccbdc#59178c9744c6881e8d600d787e5a4284ab5ccbdc"
+source = "git+https://github.com/defrag-au/miniquad?rev=1a6023680e9d5d97825590ad576f9b0fcda6d88e#1a6023680e9d5d97825590ad576f9b0fcda6d88e"
 dependencies = [
  "libc",
  "ndk-sys",
