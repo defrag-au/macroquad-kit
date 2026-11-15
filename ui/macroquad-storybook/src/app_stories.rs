@@ -9,17 +9,20 @@
 
 use macroquad::prelude::*;
 use macroquad_app::{
-    AppBar, ArtGrid, BarAction, Chip, FIELD_H, FieldKind, Glyph, GridSpec, Insets, Keyboard,
-    Leading, List, ListSpec, NavItem, NavPlace, Page, TextArea, TextAreaSpec, TextField, Toasts,
-    Tone, bottom_nav, chip_row, nav_rail, shell_layout,
+    AppBar, ArtGrid, BarAction, Chip, CopyButton, CopyOutcome, FIELD_H, FieldKind, Glyph, GridSpec,
+    Insets, Keyboard, Leading, List, ListSpec, NavItem, NavPlace, Page, TextArea, TextAreaSpec,
+    TextField, Toasts, Tone, bottom_nav, chip_row, nav_rail, shell_layout,
 };
 use macroquad_gamekit::clip::with_clip;
 use macroquad_widgets::{
-    Align, Gesture, Painter, ScrollInput, TextSize, fill_rounded, stroke_rounded,
+    Align, ButtonVariant, Gesture, Painter, ScrollInput, TextSize, fill_rounded, stroke_rounded,
 };
 
 /// A phone's width: where every one of these is designed first.
 const PHONE_W: f32 = 390.0;
+
+/// What the copy story's presses copy.
+const ADDRESS: &str = "stake1u8a9ylwjx6w3qkn0fzzdtc7h4f0x3fq8kzxy2p3e4r5t6y7u8i9o0p";
 
 /// Which part of the shell a story shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +33,9 @@ pub enum AppView {
     Nav,
     /// The text field empty and filled; click one to type into it.
     Field,
+    /// Copy presses: one live, and the faces after a copy and a refusal. On
+    /// the web the page lays a real button over each, which takes the tap.
+    Copy,
     /// Filter chips wrapping across a phone, some on, some with counts.
     Chips,
     /// A stack of toasts, one a job with its progress.
@@ -97,6 +103,11 @@ pub struct AppStory {
     grid: ArtGrid,
     list: List,
     last: String,
+    /// The copy story's presses: live, after a copy, after a refusal, and in
+    /// the app's own face.
+    copies: [CopyButton; 4],
+    /// The story's own clock, for how long a press says what became of a copy.
+    clock: f64,
 }
 
 impl AppStory {
@@ -149,6 +160,15 @@ impl AppStory {
             grid: ArtGrid::new(),
             list: List::new(),
             last: String::new(),
+            copies: [
+                CopyButton::new("Copy address"),
+                CopyButton::new("Copy address"),
+                CopyButton::new("Copy address"),
+                CopyButton::new("COPY CODE")
+                    .labels("COPIED", "BLOCKED")
+                    .variant(ButtonVariant::Tonal),
+            ],
+            clock: 0.0,
         }
     }
 
@@ -159,6 +179,7 @@ impl AppStory {
             AppView::Bar => vec2(PHONE_W, 380.0),
             AppView::Nav => vec2(PHONE_W, 560.0),
             AppView::Field => vec2(PHONE_W, 300.0),
+            AppView::Copy => vec2(PHONE_W, 330.0),
             AppView::Chips => vec2(PHONE_W, 240.0),
             AppView::Toasts => vec2(PHONE_W, 320.0),
             AppView::Grid => vec2(PHONE_W, 844.0),
@@ -555,6 +576,43 @@ impl AppStory {
                     &format!("editing: {} {}", self.keyboard.editing(), self.last),
                     b.bottom() + 20.0,
                 );
+            }
+            AppView::Copy => {
+                self.clock += f64::from(dt);
+                let now = self.clock;
+                // The two faces after a copy are held, so the story always shows them.
+                self.copies[1].note(CopyOutcome::Copied, now);
+                self.copies[2].note(CopyOutcome::Refused, now);
+                self.keyboard.begin_at(1.0, Vec2::ZERO);
+                let w = PHONE_W - 24.0;
+                let row = |i: usize| Rect::new(area.x, area.y + 22.0 + i as f32 * 74.0, w, 44.0);
+                label("live: tap to copy the address", area.y);
+                if let Some(outcome) =
+                    self.copies[0].show(p, &mut self.keyboard, row(0), ADDRESS, now)
+                {
+                    self.last = format!("{outcome:?}");
+                }
+                label("after the browser copied", row(1).y - 22.0);
+                let _ = self.copies[1].show(p, &mut self.keyboard, row(1), ADDRESS, now);
+                label("after the browser refused", row(2).y - 22.0);
+                let _ = self.copies[2].show(p, &mut self.keyboard, row(2), ADDRESS, now);
+                label("beside a code, tonal", row(3).y - 22.0);
+                let code = Rect::new(area.x, row(3).y, 160.0, 44.0);
+                p.mono_in(
+                    "K7QX-4MN2",
+                    code,
+                    p.size(TextSize::Lg),
+                    c.text_primary,
+                    Align::Start,
+                );
+                let press = Rect::new(code.right() + 8.0, row(3).y, 130.0, 44.0);
+                if let Some(outcome) =
+                    self.copies[3].show(p, &mut self.keyboard, press, "K7QX-4MN2", now)
+                {
+                    self.last = format!("{outcome:?}");
+                }
+                self.keyboard.end();
+                label(&format!("last: {}", self.last), row(3).bottom() + 16.0);
             }
             AppView::Chips => {
                 let names = [

@@ -100,7 +100,14 @@ macroquad = { git = "https://github.com/not-fl3/macroquad", rev = "8d602d3f8ebb8
 #
 # Pinned to the branch's tip, tagged `headless-2026-11` in the fork; not in a
 # miniquad release yet.
-miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "1a6023680e9d5d97825590ad576f9b0fcda6d88e" }
+miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "564ec1eee1026632b6dc083735aefc5cdb82ca19" }
+
+# quad-net's page script kept one `connected` flag, set on open and never cleared: a socket opened
+# again read as connected while still CONNECTING, and the first send threw through the wasm and
+# left the page dead (2026-11-15). The fork reads the socket's own `readyState` and drops, never
+# throws, a send on one that is not open. Branch `defrag-socket-state` off upstream's `31796d4e`.
+[patch."https://github.com/not-fl3/quad-net"]
+quad-net = { git = "https://github.com/defrag-au/quad-net", rev = "edef26fb9959922b7a9980a0cc1976d20dd8afbd" }
 
 # Local development: uncomment the WHOLE block to consume the sibling
 # `shared-crates` checkout instead of the pinned rev. Toggle it as a unit — a

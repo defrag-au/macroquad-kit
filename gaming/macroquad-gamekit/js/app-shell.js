@@ -78,8 +78,24 @@
     // The keyboard is what the visual viewport has lost at the bottom: a
     // phone shrinks the visual viewport, not the layout one, when its
     // keyboard opens.
+    //
+    // The top inset is taken only where the page can reach the top of the
+    // screen: an installed app (`display-mode` standalone or fullscreen) or a
+    // page in fullscreen. In a browser tab the browser's own bar is there, and
+    // a correct browser reports 0 anyway. A wallet app's in-app browser on an
+    // edge-to-edge Android reports the status bar's height while its own
+    // header sits between the status bar and the page, which drew a band of
+    // empty space over the top of the page.
 
     let probe = null;
+
+    function reachesScreenTop() {
+        if (document.fullscreenElement || document.webkitFullscreenElement) return true;
+        if (!window.matchMedia) return true;
+        return window.matchMedia('(display-mode: standalone)').matches
+            || window.matchMedia('(display-mode: fullscreen)').matches
+            || window.navigator.standalone === true;
+    }
 
     function ensureProbe() {
         if (probe) return probe;
@@ -98,6 +114,7 @@
             if (!vv) return 0;
             return Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
         }
+        if (side === 0 && !reachesScreenTop()) return 0;
         const s = getComputedStyle(ensureProbe());
         const v = [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft][side];
         return parseFloat(v) || 0;
@@ -107,11 +124,15 @@
     //
     // Each frame the app names the fields it drew (`app_input_zone`, after
     // `app_input_zones_clear`), with each field's text box as fractions of
-    // the canvas. A tap that ends in one shows a real `<input>` — or a
-    // `<textarea>` for a multi-line field — over that box and focuses it from
-    // this handler. While a field is being edited the element follows its box
-    // every frame, so a page that scrolls carries it along; a field the app
-    // stops naming loses the focus.
+    // the canvas. Every named field has its own real `<input>` — or a
+    // `<textarea>` for a multi-line field — laid over that box, invisible
+    // until it has the focus. The reader's tap lands on the element itself, so
+    // the browser focuses it and opens the phone's keyboard as it would for
+    // any page. Focusing an element from code after a tap on the canvas is
+    // not enough: some phone wallets' in-app browsers open the keyboard only
+    // for a tap on the input. Each element follows its box every frame, so a
+    // page that scrolls carries it along; a field the app stops naming loses
+    // its element, and the focus with it.
     //
     // While editing, the element owns the text: the value the app passes is
     // only taken when editing starts, or when the app sets it on purpose
@@ -124,8 +145,8 @@
     let focused = -1;             // the id being edited, or -1
     let wanted = -1;              // a field the app asked to focus, when it is drawn
     let submits = 0;              // submit presses, ever
-    let field = null;             // the real <input> or <textarea> over the canvas
-    let fieldMultiline = false;   // which of the two `field` is
+    const elements = new Map();   // id -> { el, multiline }: each named field's element
+    let field = null;             // the element edited last (it keeps its caret after the blur)
     let revealCaret = 0;          // frames to keep a new textarea scrolled to its caret
     let clip = null;              // the box the app's visible area clips the field to
     let zoneClip = [0, 0, 1, 1];  // that area, as canvas fractions
@@ -138,8 +159,8 @@
         // The canvas is the whole surface the app draws, so the field is
         // clipped to it: a field scrolled under the app bar, or off the page,
         // is cut the way the canvas cuts its own drawing instead of floating
-        // over the chrome. The wrapper takes no pointer, so taps reach the
-        // canvas as before.
+        // over the chrome. The wrapper takes no pointer, so taps outside a
+        // field reach the canvas; the fields in it take their own.
         clip = document.createElement('div');
         clip.style.cssText = 'position:fixed;display:none;overflow:hidden;'
             + 'pointer-events:none;z-index:10;';
@@ -147,8 +168,9 @@
         return clip;
     }
 
-    function makeField(multiline) {
+    function makeField(id, multiline) {
         const el = document.createElement(multiline ? 'textarea' : 'input');
+        el.dataset.field = String(id);
         if (multiline) {
             el.setAttribute('autocomplete', 'off');
             el.setAttribute('wrap', 'soft');
@@ -158,9 +180,25 @@
             el.setAttribute('autocomplete', 'off');
             el.setAttribute('spellcheck', 'false');
         }
+        // Invisible until it has the focus: the canvas draws the field, and
+        // the element is only there to take the tap.
         el.style.cssText = 'position:absolute;display:block;margin:0;padding:0;border:0;'
             + 'outline:none;background:transparent;box-sizing:border-box;'
+            + 'pointer-events:auto;opacity:0;-webkit-tap-highlight-color:transparent;'
             + 'font-family:' + FALLBACK_FONT + ';';
+        el.addEventListener('focus', function () {
+            if (focused === id) return;
+            focused = id;
+            field = el;
+            el.style.opacity = '1';
+            try {
+                const end = el.value.length;
+                el.setSelectionRange(end, end);
+            } catch (e) { /* some input modes refuse a selection */ }
+            // The face may still be loading; the next placements and the
+            // face's load both call `revealEnd`.
+            revealCaret = 2;
+        });
         // miniquad's page cancels every paste at the window, for its own
         // clipboard. Stopping the event here, before it bubbles there, lets
         // the field take what was pasted.
@@ -179,8 +217,8 @@
             }
         });
         el.addEventListener('blur', function () {
-            focused = -1;
-            if (clip) clip.style.display = 'none';
+            if (focused === id) focused = -1;
+            el.style.opacity = '0';
             const c = canvasEl();
             // Back to the canvas, so the app's own keys work again. A phone
             // does not reopen a keyboard for a canvas.
@@ -190,18 +228,24 @@
         return el;
     }
 
-    // A screen can hold single-line and multi-line fields, and a reader can
-    // move between them, so the element is made for the focus and reused until
-    // the next field wants the other kind.
-    function ensureField(multiline) {
-        if (field && fieldMultiline === multiline) return field;
-        if (field) {
-            field.blur();
-            field.remove();
-        }
-        fieldMultiline = multiline;
-        field = makeField(multiline);
-        return field;
+    // The element for field `id`, made when the field is first named and
+    // remade if it changes between one line and several.
+    function ensureElement(id, z) {
+        let e = elements.get(id);
+        if (e && e.multiline === z.multiline) return e;
+        if (e) dropElement(id);
+        e = { el: makeField(id, z.multiline), multiline: z.multiline, styled: '' };
+        elements.set(id, e);
+        return e;
+    }
+
+    function dropElement(id) {
+        const e = elements.get(id);
+        if (!e) return;
+        if (focused === id) e.el.blur();
+        e.el.remove();
+        if (field === e.el) field = null;
+        elements.delete(id);
     }
 
     function place(el, box) {
@@ -262,41 +306,13 @@
         }
     }
 
+    // Focus field `id` from code: for the app's own `app_input_focus` (a
+    // capture, a screen that opens on its field). A reader's tap needs none of
+    // this; it lands on the element.
     function startEditing(id) {
-        const z = zones.get(id);
-        if (!z) return;
-        const el = ensureField(!!z.multiline);
-        styleFor(el, z);
-        el.value = z.value;
-        ensureClip();
-        clip.style.display = 'block';
-        place(el, z.box);
-        focused = id;
-        el.focus({ preventScroll: true });
-        try {
-            const end = el.value.length;
-            el.setSelectionRange(end, end);
-        } catch (e) { /* some input modes refuse a selection */ }
-        // The box is set after this call, and a named face may still be
-        // loading; the first placements and the face's load both call
-        // `revealEnd`.
-        revealCaret = 2;
+        const e = elements.get(id);
+        if (e) e.el.focus({ preventScroll: true });
     }
-
-    document.addEventListener('pointerup', function (e) {
-        const c = canvasEl();
-        if (!c || zones.size === 0) return;
-        const r = c.getBoundingClientRect();
-        const fx = (e.clientX - r.left) / r.width;
-        const fy = (e.clientY - r.top) / r.height;
-        for (const [id, z] of zones) {
-            const b = z.box;
-            if (fx >= b[0] && fx <= b[2] && fy >= b[1] && fy <= b[3]) {
-                if (focused !== id) startEditing(id);
-                return;
-            }
-        }
-    }, { capture: true, passive: true });
 
     function app_input_zones_clear() {
         nextZones = new Map();
@@ -320,26 +336,35 @@
         });
     }
 
-    // The frame's zones are complete: swap them in, and keep the field on
-    // its box, or let it go if the field is gone.
+    // The frame's zones are complete: swap them in, give every field its
+    // element on its box, and let the elements of fields that are gone go.
     function app_input_zones_done() {
         zones = nextZones;
+        for (const id of [...elements.keys()]) {
+            if (!zones.has(id)) dropElement(id);
+        }
+        if (zones.size > 0) ensureClip().style.display = 'block';
+        else if (clip) clip.style.display = 'none';
+        for (const [id, z] of zones) {
+            const e = ensureElement(id, z);
+            const style = [z.font, z.color, z.placeholder, z.kind, z.maxLen, inputFont].join('|');
+            if (e.styled !== style) {
+                styleFor(e.el, z);
+                e.styled = style;
+            }
+            // While it is edited the element owns the text; otherwise it
+            // carries the app's, ready for the tap that focuses it.
+            if (focused !== id && e.el.value !== z.value) e.el.value = z.value;
+            place(e.el, z.box);
+        }
         if (wanted >= 0 && zones.has(wanted)) {
             startEditing(wanted);
             wanted = -1;
         }
-        if (focused < 0 || !field) return;
-        const z = zones.get(focused);
-        if (!z) {
-            field.blur();
-            return;
-        }
-        place(field, z.box);
-        if (revealCaret > 0) {
+        const e = focused >= 0 ? elements.get(focused) : null;
+        if (e && revealCaret > 0) {
             revealCaret -= 1;
-            if (fieldMultiline) {
-                revealEnd(field);
-            }
+            if (e.multiline) revealEnd(e.el);
         }
     }
 
@@ -395,15 +420,15 @@
         const url = consume_js_object(url_js);
         if (!family || !url || inputFont) return;
         inputFont = '"' + family.replace(/"/g, '') + '", ' + FALLBACK_FONT;
-        if (field) field.style.fontFamily = inputFont;
+        // The elements restyle on the next frame: the face is part of their style.
         if (typeof FontFace !== 'function') return;
         const face = new FontFace(family, 'url("' + url.replace(/"/g, '%22') + '")');
         face.load().then(function (loaded) {
             document.fonts.add(loaded);
-            if (field) field.style.fontFamily = inputFont;
             // The new face re-wraps the text, so a long note focused at its
             // end has to be scrolled again.
-            if (field && fieldMultiline && focused >= 0) revealEnd(field);
+            const e = focused >= 0 ? elements.get(focused) : null;
+            if (e && e.multiline) revealEnd(e.el);
         }).catch(function () { /* the fallback stack stays */ });
     }
 
@@ -416,6 +441,138 @@
             return;
         }
         wanted = id;
+    }
+
+    // ── Page buttons ────────────────────────────────────────────────────────
+    //
+    // Some actions a browser allows only while it handles the reader's own
+    // gesture, and how long "while" lasts differs: Chrome allows the next
+    // frame; WebKit and some wallet apps' in-app browsers allow only the
+    // gesture's handler. A canvas acts on a tap in its next frame. So a button
+    // whose action needs the gesture is a real `<button>`, invisible, laid
+    // over the one the canvas draws: the tap lands on it, the browser decides
+    // it was pressed, and the action runs inside its click handler on every
+    // browser. The app's widgets (macroquad-app's `CopyButton`) own this; the
+    // app itself never names a box.
+    //
+    // Each frame the widgets name their buttons (`app_button`, between
+    // `app_buttons_clear` and `app_buttons_done`): an id, the button's box as
+    // fractions of the canvas, an action kind and its payload. A button not
+    // named in a frame is removed. Each tap's outcome is counted per id, done
+    // or refused, and the widget reads the counts back, so it says "copied"
+    // only when the browser copied.
+    //
+    // Kinds: 1 copy the payload to the clipboard.
+
+    const BUTTON_COPY = 1;
+
+    let pageButtons = new Map();    // id -> { el, kind, payload }
+    let nextButtons = new Map();    // id -> { box, kind, payload }
+    const buttonCounts = new Map(); // id -> { done, refused }
+
+    function countCopy(id, ok) {
+        const n = buttonCounts.get(id) || { done: 0, refused: 0 };
+        if (ok) n.done += 1; else n.refused += 1;
+        buttonCounts.set(id, n);
+    }
+
+    // `execCommand('copy')` first: it answers at once, and it works in the
+    // in-app browsers whose async clipboard is refused for want of a
+    // permission the host app never grants. The async clipboard is the second
+    // try, still started inside the handler.
+    function copyInGesture(id, text) {
+        let ok = false;
+        try {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.readOnly = true; // no keyboard for it
+            area.style.cssText = 'position:fixed;left:0;top:0;opacity:0;font-size:16px;';
+            document.body.appendChild(area);
+            area.focus({ preventScroll: true });
+            area.select();
+            area.setSelectionRange(0, text.length); // WebKit ignores select()
+            ok = document.execCommand('copy');
+            document.body.removeChild(area);
+        } catch (e) {
+            ok = false;
+        }
+        const c = canvasEl();
+        if (c) c.focus({ preventScroll: true });
+        if (ok) {
+            countCopy(id, true);
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(
+                function () { countCopy(id, true); },
+                function () { countCopy(id, false); });
+        } else {
+            countCopy(id, false);
+        }
+    }
+
+    function makePageButton(id) {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.dataset.pageButton = String(id);
+        el.style.cssText = 'position:fixed;margin:0;padding:0;border:0;background:transparent;'
+            + 'color:transparent;opacity:0;cursor:pointer;z-index:11;'
+            + '-webkit-tap-highlight-color:transparent;touch-action:manipulation;';
+        el.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const b = pageButtons.get(id);
+            if (b && b.kind === BUTTON_COPY) copyInGesture(id, b.payload);
+        });
+        document.body.appendChild(el);
+        return el;
+    }
+
+    function app_buttons_clear() {
+        nextButtons = new Map();
+    }
+
+    function app_button(id, x0, y0, x1, y1, kind, payload_js) {
+        const payload = consume_js_object(payload_js);
+        if (x1 <= x0 || y1 <= y0 || kind !== BUTTON_COPY || payload.length === 0) return;
+        nextButtons.set(id, { box: [x0, y0, x1, y1], kind: kind, payload: payload });
+    }
+
+    function app_buttons_done() {
+        for (const [id, b] of pageButtons) {
+            if (!nextButtons.has(id)) {
+                b.el.remove();
+                pageButtons.delete(id);
+            }
+        }
+        const c = canvasEl();
+        const r = c ? c.getBoundingClientRect() : null;
+        for (const [id, z] of nextButtons) {
+            let b = pageButtons.get(id);
+            if (!b) {
+                b = { el: makePageButton(id) };
+                pageButtons.set(id, b);
+            }
+            b.kind = z.kind;
+            b.payload = z.payload;
+            b.el.setAttribute('aria-label', 'Copy ' + z.payload);
+            if (r) {
+                b.el.style.left = (r.left + z.box[0] * r.width) + 'px';
+                b.el.style.top = (r.top + z.box[1] * r.height) + 'px';
+                b.el.style.width = ((z.box[2] - z.box[0]) * r.width) + 'px';
+                b.el.style.height = ((z.box[3] - z.box[1]) * r.height) + 'px';
+            }
+        }
+    }
+
+    // How many of button `id`'s taps the browser acted on, and how many it
+    // refused, ever.
+    function app_button_done(id) {
+        const n = buttonCounts.get(id);
+        return n ? n.done : 0;
+    }
+
+    function app_button_refused(id) {
+        const n = buttonCounts.get(id);
+        return n ? n.refused : 0;
     }
 
     // ── HTTP ────────────────────────────────────────────────────────────────
@@ -505,6 +662,11 @@
         importObject.env.app_input_caret = app_input_caret;
         importObject.env.app_input_anchor = app_input_anchor;
         importObject.env.app_input_scroll = app_input_scroll;
+        importObject.env.app_buttons_clear = app_buttons_clear;
+        importObject.env.app_button = app_button;
+        importObject.env.app_buttons_done = app_buttons_done;
+        importObject.env.app_button_done = app_button_done;
+        importObject.env.app_button_refused = app_button_refused;
         importObject.env.app_http = app_http;
         importObject.env.app_http_state = app_http_state;
         importObject.env.app_http_status = app_http_status;
@@ -516,5 +678,5 @@
     // Bumped with every change to the functions above, with the Rust export
     // beside it, so a page carrying an older copy fails at instantiate rather
     // than calling a function gl.js stubbed out.
-    miniquad_add_plugin({ register_plugin, version: 3, name: 'app_shell' });
+    miniquad_add_plugin({ register_plugin, version: 4, name: 'app_shell' });
 })();

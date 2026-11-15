@@ -61,6 +61,32 @@ impl FieldKind {
     }
 }
 
+/// What a page button does when the browser hands it a tap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PageAction<'a> {
+    /// Put the text on the clipboard.
+    Copy(&'a str),
+}
+
+impl PageAction<'_> {
+    /// The kind as the page script numbers it, and what it carries.
+    #[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+    pub(crate) fn wire(&self) -> (u32, &str) {
+        match self {
+            PageAction::Copy(text) => (1, text),
+        }
+    }
+}
+
+/// What became of a page button's taps since last frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PageReply {
+    /// The browser did it.
+    pub done: bool,
+    /// The browser refused it.
+    pub refused: bool,
+}
+
 /// What happened to a field this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FieldReply {
@@ -106,6 +132,31 @@ pub(crate) mod page {
         fn app_input_caret() -> f32;
         fn app_input_anchor() -> f32;
         fn app_input_scroll() -> f32;
+        fn app_buttons_clear();
+        #[allow(clippy::too_many_arguments)]
+        fn app_button(id: u32, x0: f32, y0: f32, x1: f32, y1: f32, kind: u32, payload: JsObject);
+        fn app_buttons_done();
+        fn app_button_done(id: u32) -> u32;
+        fn app_button_refused(id: u32) -> u32;
+    }
+
+    pub fn buttons_clear() {
+        unsafe { app_buttons_clear() }
+    }
+
+    pub fn page_button(id: u32, frac: [f32; 4], action: super::PageAction<'_>) {
+        let [x0, y0, x1, y1] = frac;
+        let (kind, payload) = action.wire();
+        unsafe { app_button(id, x0, y0, x1, y1, kind, JsObject::string(payload)) }
+    }
+
+    pub fn buttons_done() {
+        unsafe { app_buttons_done() }
+    }
+
+    /// Button `id`'s taps so far: the browser did the action, it refused it.
+    pub fn page_button_counts(id: u32) -> (u32, u32) {
+        unsafe { (app_button_done(id), app_button_refused(id)) }
     }
 
     pub fn clear() {
@@ -227,6 +278,9 @@ pub struct Keyboard {
     clip: Option<Rect>,
     #[cfg(target_arch = "wasm32")]
     seen_submits: u32,
+    /// Each page button's counts as last read: `(id, done, refused)`.
+    #[cfg(target_arch = "wasm32")]
+    seen_buttons: Vec<(u32, u32, u32)>,
     /// Native: this frame's typing.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) typed: Typed,
@@ -294,6 +348,7 @@ impl Keyboard {
                 self.font_sent = true;
             }
             page::clear();
+            page::buttons_clear();
             self.focused = page::focused();
             let submits = page::submits();
             self.submitted = submits != self.seen_submits;
@@ -366,6 +421,7 @@ impl Keyboard {
             };
             page::clip(frac);
             page::done();
+            page::buttons_done();
         }
         // A phone opens its soft keyboard for a field that has the focus and
         // puts it away when none has. Every platform that has one gets this;
@@ -418,6 +474,55 @@ impl Keyboard {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.focused = Some(id);
+        }
+    }
+
+    /// A page button over `rect` this frame: a real, invisible element the
+    /// page lays over what the canvas drew there, so the tap lands on it and
+    /// its `action` runs inside the browser's own handler for that tap. `id`
+    /// is the widget's (see [`crate::page_button::next_id`]); `clicked` is the
+    /// canvas's own press, which only arrives natively, where there is no
+    /// page and the action runs here instead. Call it between
+    /// [`Keyboard::begin`] and [`Keyboard::end`] every frame the button is
+    /// drawn; a frame that does not call it removes the element.
+    pub(crate) fn page_button(
+        &mut self,
+        id: u32,
+        rect: Rect,
+        action: PageAction<'_>,
+        clicked: bool,
+    ) -> PageReply {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = clicked;
+            page::page_button(id, self.fractions(rect), action);
+            let (done, refused) = page::page_button_counts(id);
+            let seen = match self.seen_buttons.iter_mut().find(|(seen, ..)| *seen == id) {
+                Some(seen) => seen,
+                None => {
+                    self.seen_buttons.push((id, done, refused));
+                    return PageReply::default();
+                }
+            };
+            let reply = PageReply {
+                done: done != seen.1,
+                refused: refused != seen.2,
+            };
+            *seen = (id, done, refused);
+            reply
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (id, rect);
+            if clicked {
+                match action {
+                    PageAction::Copy(text) => macroquad::miniquad::window::clipboard_set(text),
+                }
+            }
+            PageReply {
+                done: clicked,
+                refused: false,
+            }
         }
     }
 

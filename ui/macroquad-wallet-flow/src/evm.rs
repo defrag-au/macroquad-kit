@@ -353,6 +353,17 @@ impl<B: EvmBridge> EvmHost<B> {
         self.connection.phase()
     }
 
+    /// The account the wallet reports, whether or not the connection
+    /// completed: on the wrong chain the connection has failed, but the
+    /// wallet still says which account it is on, and still says when that
+    /// changes. For a site that identifies the reader by the account alone (a
+    /// signed-in session) and must follow a switch made while the wallet is on
+    /// another network. `None` before an answer, and once the wallet reports
+    /// no account.
+    pub fn reported_address(&self) -> Option<&str> {
+        self.address.as_deref()
+    }
+
     fn ask(&mut self, wallet: &str, silent: bool) {
         self.drop_step();
         self.wrong_chain = false;
@@ -370,15 +381,20 @@ impl<B: EvmBridge> EvmHost<B> {
         }
     }
 
-    /// Reconnect the remembered wallet, once it has announced.
+    /// Reconnect the remembered wallet, once it has announced: by its
+    /// reverse-DNS name, or by the uuid an older build remembered it by.
     fn try_remembered(&mut self) {
-        let Some(id) = &self.remembered else {
+        let Some(kept) = &self.remembered else {
             return;
         };
-        if !self.wallets.iter().any(|w| &w.id == id) {
+        let Some(id) = self
+            .wallets
+            .iter()
+            .find(|w| (!w.rdns.is_empty() && &w.rdns == kept) || &w.id == kept)
+            .map(|w| w.id.clone())
+        else {
             return;
-        }
-        let id = id.clone();
+        };
         self.remembered = None;
         self.ask(&id, true);
     }
@@ -486,7 +502,17 @@ impl<B: EvmBridge> EvmHost<B> {
     /// remembering.
     fn connected(&mut self, wallet: String) {
         self.wrong_chain = false;
-        self.bridge.remember(Some(&wallet));
+        // Remembered by its reverse-DNS name: EIP-6963's `uuid` is the
+        // announcement's, made afresh on every page load, so a remembered uuid
+        // never matched on the next load and the wallet was never reconnected
+        // (2026-11-15). A wallet that gives no `rdns` is remembered by its
+        // uuid, as before: it only reconnects where that uuid holds.
+        let keep = self
+            .wallets
+            .iter()
+            .find(|w| w.id == wallet && !w.rdns.is_empty())
+            .map_or_else(|| wallet.clone(), |w| w.rdns.clone());
+        self.bridge.remember(Some(&keep));
         if let Some(account) = self.account() {
             self.feed(&ConnectionEvent::Answered { wallet, account });
         }
@@ -527,6 +553,25 @@ impl<B: EvmBridge> EvmHost<B> {
         // Failed for being on another chain: switching back in the wallet is
         // the reader fixing it, so reconnect without making them ask.
         if self.wrong_chain {
+            // The account is still the wallet's word on who the reader is,
+            // whatever chain it is on: a site that signed an account in must
+            // see a switch to another, or a wallet emptied, here too.
+            if let Some(accounts) = changes.accounts {
+                match accounts.into_iter().next() {
+                    Some(address) => {
+                        self.dirty |= self.address.as_deref() != Some(address.as_str());
+                        self.address = Some(address);
+                    }
+                    None => {
+                        self.wrong_chain = false;
+                        self.address = None;
+                        self.chain = None;
+                        self.bridge.remember(None);
+                        self.feed(&ConnectionEvent::Release);
+                        return;
+                    }
+                }
+            }
             if let Some(chain) = changes.chain {
                 self.chain = evm::parse_chain_id(&chain);
                 if self.on_target()
@@ -811,7 +856,8 @@ mod tests {
         assert_eq!(wallet, "uuid-rabby");
         assert_eq!(account.address, address());
         assert_eq!(account.details[1].value, "Robinhood Chain");
-        assert_eq!(host.bridge.stored, [Some("uuid-rabby".to_string())]);
+        // Remembered by its reverse-DNS name, which outlives this load's uuid.
+        assert_eq!(host.bridge.stored, [Some("io.rabby".to_string())]);
     }
 
     /// An id `chains` does not name is said as a number, not guessed at.
@@ -933,6 +979,35 @@ mod tests {
 
     /// A returning reader is reconnected without a dialog.
     #[test]
+    fn a_remembered_wallet_reconnects_by_its_name_whatever_its_uuid() {
+        // A connect remembers the wallet's reverse-DNS name, not this load's uuid.
+        let mut bridge = fake();
+        bridge.accounts.push_back(ok(&address()));
+        bridge.chains.push_back(ok("0x1"));
+        let mut host = EvmHost::with_bridge(bridge);
+        connect(&mut host);
+        run(&mut host, 2);
+        assert_eq!(
+            host.bridge.stored.last(),
+            Some(&Some("io.rabby".to_string()))
+        );
+        // The next load: Rabby announces under a new uuid, and is reconnected all the same.
+        let mut bridge = fake();
+        bridge.wallets[0].id = "uuid-rabby-next-load".into();
+        bridge.remembered = Some("io.rabby".into());
+        bridge.accounts.push_back(ok(&address()));
+        bridge.chains.push_back(ok("0x1"));
+        let mut host = EvmHost::with_bridge(bridge);
+        assert_eq!(
+            host.bridge.asked,
+            [("uuid-rabby-next-load".to_string(), true)]
+        );
+        run(&mut host, 2);
+        assert!(host.connection().is_connected());
+    }
+
+    /// A uuid remembered by an older build still reconnects where it holds.
+    #[test]
     fn a_remembered_wallet_reconnects_silently() {
         let mut bridge = fake();
         bridge.remembered = Some("uuid-rabby".into());
@@ -1027,7 +1102,8 @@ mod tests {
         run(&mut host, 1);
         let account = host.connection().account().expect("connected");
         assert_eq!(account.details[1].value, "Robinhood Chain");
-        assert_eq!(host.bridge.stored, [Some("uuid-rabby".to_string())]);
+        // Remembered by its reverse-DNS name, which outlives this load's uuid.
+        assert_eq!(host.bridge.stored, [Some("io.rabby".to_string())]);
     }
 
     /// The reader refuses the switch: a fault that names both chains, and
@@ -1076,6 +1152,73 @@ mod tests {
         run(&mut host, 2);
         assert!(host.bridge.switched_to.is_empty());
         assert!(matches!(host.phase(), ChainPhase::Failed { .. }));
+    }
+
+    /// Reconnected on load to a wallet on another chain, the host still
+    /// follows the account the wallet is on: a switch shows in
+    /// `reported_address`, and emptying the wallet lets go (2026-11-15: a
+    /// signed-in page went on showing the old account through every switch
+    /// made in Rabby).
+    #[test]
+    fn on_the_wrong_chain_the_account_is_still_followed() {
+        let other = "0x00000000000000000000000000000000000000b2".to_string();
+        let mut bridge = fake();
+        bridge.remembered = Some("uuid-rabby".into());
+        bridge.accounts.push_back(ok(&address()));
+        bridge.chains.push_back(ok("0x1"));
+        bridge.changes.extend([
+            EvmChanges::default(),
+            EvmChanges::default(),
+            EvmChanges {
+                accounts: Some(vec![other.clone()]),
+                chain: None,
+            },
+            EvmChanges {
+                accounts: Some(Vec::new()),
+                chain: None,
+            },
+        ]);
+        let mut host = EvmHost::with_bridge(bridge).expect_chain(robinhood_chain());
+        run(&mut host, 2);
+        assert!(matches!(host.phase(), ChainPhase::Failed { .. }));
+        assert_eq!(host.reported_address(), Some(address().as_str()));
+        run(&mut host, 1);
+        assert_eq!(host.reported_address(), Some(other.as_str()));
+        assert!(matches!(host.phase(), ChainPhase::Failed { .. }));
+        run(&mut host, 1);
+        assert_eq!(host.reported_address(), None);
+        assert!(!matches!(host.phase(), ChainPhase::Failed { .. }));
+    }
+
+    /// A switch of account made while on the wrong chain is the account the
+    /// connection takes when the reader switches the chain back.
+    #[test]
+    fn switching_back_connects_the_account_switched_to() {
+        let other = "0x00000000000000000000000000000000000000b2".to_string();
+        let mut bridge = fake();
+        bridge.accounts.push_back(ok(&address()));
+        bridge.chains.push_back(ok("0x1237"));
+        bridge.changes.extend([
+            EvmChanges::default(),
+            EvmChanges::default(),
+            EvmChanges {
+                accounts: None,
+                chain: Some("0x1".into()),
+            },
+            EvmChanges {
+                accounts: Some(vec![other.clone()]),
+                chain: None,
+            },
+            EvmChanges {
+                accounts: None,
+                chain: Some("0x1237".into()),
+            },
+        ]);
+        let mut host = EvmHost::with_bridge(bridge).expect_chain(robinhood_chain());
+        connect(&mut host);
+        run(&mut host, 5);
+        assert!(host.connection().is_connected());
+        assert_eq!(host.reported_address(), Some(other.as_str()));
     }
 
     /// Switching away in the wallet fails the connection; switching back

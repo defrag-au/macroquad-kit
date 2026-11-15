@@ -19,6 +19,7 @@
 //!   hash and the back button ([`Router`]), the safe area and the keyboard
 //!   ([`Insets`]), a real text field with the phone's own keyboard
 //!   ([`TextField`]), a multi-line one that grows and scrolls ([`TextArea`]),
+//!   a copy press the browser itself takes the tap for ([`CopyButton`]),
 //!   HTTP with any method and the reply's status ([`http`]), a request read
 //!   into a screen's type and its loading state ([`Load`]), a page that scrolls
 //!   as a whole ([`Page`]), a virtualised grid ([`ArtGrid`]), a virtualised
@@ -57,6 +58,7 @@ pub mod list;
 pub mod load;
 pub mod nav;
 pub mod page;
+pub mod page_button;
 pub mod text_area;
 pub mod toast;
 
@@ -73,6 +75,7 @@ pub use list::{List, ListGeometry, ListSpec};
 pub use load::{Fetch, Load};
 pub use nav::{NavItem, bottom_nav, nav_rail};
 pub use page::Page;
+pub use page_button::{CopyButton, CopyOutcome};
 pub use text_area::{TEXT_AREA_MAX_H, TEXT_AREA_MIN_H, TextArea, TextAreaReply, TextAreaSpec};
 pub use toast::{Toast, Toasts, Tone};
 
@@ -99,7 +102,7 @@ pub const PLUGIN_JS: &str = macroquad_gamekit::web::APP_SHELL_JS;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 extern "C" fn app_shell_crate_version() -> u32 {
-    3
+    4
 }
 
 /// A colour as CSS reads it, for the page's own input to match the canvas.
@@ -139,6 +142,6 @@ mod tests {
     #[test]
     fn the_plugin_names_itself_as_the_handshake_does() {
         assert!(PLUGIN_JS.contains("name: 'app_shell'"));
-        assert!(PLUGIN_JS.contains("version: 3,"));
+        assert!(PLUGIN_JS.contains("version: 4,"));
     }
 }
