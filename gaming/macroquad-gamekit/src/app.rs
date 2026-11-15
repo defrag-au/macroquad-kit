@@ -572,6 +572,8 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                 game.draw_margin(&frame);
             }
         }
+        // The pointer over whatever this frame drew that can be pressed, the arrow elsewhere.
+        macroquad_widgets::cursor::finish_frame();
         timer.mark(FrameMark::Draw);
 
         let finished = crate::profile::time("glyphs", || startup.finish(dt, game.ready()));

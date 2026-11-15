@@ -5,6 +5,7 @@
 //! Pattern (mirrors `egui-widgets`): host projects a VM → widget renders →
 //! widget returns actions → host dispatches. No async, no I/O, no backend deps.
 
+pub mod cursor;
 pub mod painter;
 /// The distance-field renderer behind [`shape`] and [`draw_rounded_rect`].
 /// Private: one door per shape, so new code cannot reach for the old look.

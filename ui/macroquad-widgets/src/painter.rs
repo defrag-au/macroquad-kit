@@ -22,6 +22,9 @@ pub struct Painter<'a> {
     px: f32,
     /// Seconds on the host's clock; see [`Painter::at_time`].
     now: f64,
+    /// Whether what this painter draws can be pressed now, so the mouse over it shows the
+    /// pointer. Off for a screen under a modal ([`Painter::untapped`], [`Painter::inert`]).
+    pressable: bool,
 }
 
 /// Per-frame interaction state for a rect — for building custom interactive
@@ -51,7 +54,15 @@ impl<'a> Painter<'a> {
             tap,
             px,
             now: get_time(),
+            pressable: true,
         }
+    }
+
+    /// What this painter draws cannot be pressed now — a screen under a modal, drawn with no
+    /// tap — so the mouse over its buttons keeps the arrow.
+    pub fn inert(mut self) -> Self {
+        self.pressable = false;
+        self
     }
 
     /// Device pixels per unit where these widgets are drawn: the screen's DPI
@@ -89,6 +100,7 @@ impl<'a> Painter<'a> {
             tap: None,
             px: self.px,
             now: self.now,
+            pressable: false,
         }
     }
 
@@ -357,16 +369,32 @@ impl<'a> Painter<'a> {
         }
     }
 
-    /// Did the user tap inside `rect` this frame?
+    /// Did the user tap inside `rect` this frame? Asking marks `rect` as something to press:
+    /// the mouse over it shows the pointer ([`crate::cursor`]).
+    ///
+    /// A "tap anywhere" check (skip an animation, dismiss on any tap) is not a button: read
+    /// [`Painter::tap`] for it. A `rect` covering most of the screen is taken to be one and does
+    /// not show the pointer, so one written with `tapped` cannot point the whole page (found
+    /// 2026-11-15: a reveal's tap-to-skip over the screen did exactly that).
     pub fn tapped(&self, rect: Rect) -> bool {
+        let (mx, my) = mouse_position();
+        let screen = screen_width() * screen_height();
+        let anywhere = screen > 0.0 && rect.w * rect.h > screen * 0.5;
+        if self.pressable && !anywhere && rect.contains(vec2(mx, my)) {
+            crate::cursor::want_pointer();
+        }
         self.tap.is_some_and(|p| rect.contains(p))
     }
 
     /// Hover / pressed / clicked state for `rect` this frame (current-frame
     /// input only — no retained state). `enabled = false` reports all false.
+    /// An enabled `rect` under the mouse shows the pointer ([`crate::cursor`]).
     pub fn interact(&self, rect: Rect, enabled: bool) -> Hit {
         let (mx, my) = mouse_position();
         let over = enabled && rect.contains(vec2(mx, my));
+        if over && self.pressable {
+            crate::cursor::want_pointer();
+        }
         let pressed = over && is_mouse_button_down(MouseButton::Left);
         Hit {
             hover: over && !pressed,
