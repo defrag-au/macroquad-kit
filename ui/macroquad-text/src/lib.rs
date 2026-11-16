@@ -26,6 +26,7 @@ pub mod dom;
 mod gate;
 mod layout;
 mod measure;
+pub mod press;
 mod raster;
 pub mod report;
 mod run;

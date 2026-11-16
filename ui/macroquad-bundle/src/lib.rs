@@ -39,12 +39,18 @@
 //!    plugins, stamped by its `build.rs` from each plugin crate's `PLUGIN_JS`
 //!    (or `macroquad_gamekit::web::stamp`). Two scripts registering the same
 //!    miniquad plugin is an error: the page loads both, and the second silently
-//!    wins. `--assets <dir>` replaces `<dest>/assets/` with the directory's
-//!    contents, for a file the page fetches — a font for the text input, say.
-//! 5. **Render** `index.html` from the shared shell ([`page::SHELL`]), with
-//!    the wasm content-hashed into `load()`: an unversioned `load("x.wasm")`
-//!    lets a proxy or the browser keep a stale build alive, invisibly.
-//!    `--base /pump/` prefixes every path, for a page served at a bare path.
+//!    wins. The scripts go into one file named by its content,
+//!    `runtime.<hash>.js`, each still run as its own script, in that order
+//!    ([`runtime`]): a cached script can never meet another build's wasm, and the
+//!    page makes one request for them, not nine. `--assets <dir>` replaces
+//!    `<dest>/assets/` with the directory's contents, for a file the page
+//!    fetches — a font for the text input, say.
+//! 5. **Render** `index.html` from the shared shell ([`page::SHELL`]), naming
+//!    the runtime and with the wasm content-hashed into `load()`: an
+//!    unversioned `load("x.wasm")` lets a proxy or the browser keep a stale
+//!    build alive, invisibly. `index.html` is then the one file a host must
+//!    not cache. `--base /pump/` prefixes every path, for a page served at a
+//!    bare path.
 //! 6. **Check** that every function the wasm imports is provided by a staged
 //!    script ([`imports`]). gl.js stubs a missing import rather than refusing
 //!    to load, so a missing plugin was a silent game or a dead socket; here it
@@ -53,6 +59,7 @@
 pub mod imports;
 pub mod metadata;
 pub mod page;
+pub mod runtime;
 
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -86,7 +93,9 @@ pub struct Options {
 #[derive(Debug)]
 pub struct Bundle {
     pub dest: PathBuf,
-    /// Scripts in load order, as named in the page.
+    /// The one script the page loads, `runtime.<hash>.js` ([`runtime`]).
+    pub runtime: String,
+    /// The scripts inside it, in load order.
     pub scripts: Vec<String>,
     pub wasm_bytes: u64,
     pub cache_key: String,
@@ -279,7 +288,14 @@ pub fn check(dir: &Path, wasm: &str) -> Result<usize, String> {
     let bytes = std::fs::read(&path).map_err(|e| io("read", &path, e))?;
     let imports =
         imports::function_imports(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-    let scripts = scripts_in(dir)?;
+    // A runtime holds the scripts as strings; read them back out, so a name is found as code.
+    let scripts: Vec<(String, String)> = scripts_in(dir)?
+        .into_iter()
+        .flat_map(|(name, text)| match runtime::is_runtime(&name) {
+            true => runtime::sources(&text).unwrap_or_else(|| vec![(name, text)]),
+            false => vec![(name, text)],
+        })
+        .collect();
     let gap = imports::unprovided(&imports, scripts.iter().map(|(_, s)| s.as_str()));
     if gap.is_empty() {
         Ok(imports.len())
@@ -354,7 +370,6 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
                 Some(dir) => {
                     let from = dir.join(rel);
                     let text = std::fs::read_to_string(&from).map_err(|e| io("read", &from, e))?;
-                    copy(&from, &dest.join(as_name))?;
                     staged.push((as_name.to_owned(), text));
                     Ok(())
                 }
@@ -396,10 +411,13 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
                     web.display()
                 ));
             }
-            copy(&web.join(&name), &dest.join(&name))?;
             staged.push((name, text));
         }
     }
+    // One file, named by its content: see [`runtime`].
+    let runtime = runtime::runtime(&staged);
+    let runtime_path = dest.join(&runtime.file);
+    std::fs::write(&runtime_path, &runtime.text).map_err(|e| io("write", &runtime_path, e))?;
     copy(&wasm_path, &dest.join(&opts.wasm))?;
     if let Some(assets) = &opts.assets {
         let files = stage_assets(assets, &dest.join("assets"))?;
@@ -413,12 +431,32 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
         Some(p) => std::fs::read_to_string(p).map_err(|e| io("read", p, e))?,
         None => page::SHELL.to_owned(),
     };
-    let srcs: Vec<String> = staged
-        .iter()
-        .map(|(n, _)| format!("{}{n}", opts.base))
-        .collect();
+    let srcs = vec![format!("{}{}", opts.base, runtime.file)];
     let wasm_src = format!("{}{}?v={cache_key}", opts.base, opts.wasm);
-    let html = page::render(&template, &opts.title, &srcs, &wasm_src, &opts.base)?;
+    // The social card, from the crate's own metadata. Its image is checked where it was staged:
+    // a preview that points at a file the bundle does not hold is a blank card, found only by
+    // sharing the link.
+    if let Some(card) = &linked.card {
+        card.check()?;
+        if let Some(image) = card.bundled_image() {
+            let at = dest.join(image);
+            if !at.is_file() {
+                return Err(format!(
+                    "the social card's image `{image}` is not in the bundle ({} is missing); put \
+                     it where --assets stages it, or name an absolute https:// URL",
+                    at.display()
+                ));
+            }
+        }
+    }
+    let html = page::render(
+        &template,
+        &opts.title,
+        &srcs,
+        &wasm_src,
+        &opts.base,
+        linked.card.as_ref(),
+    )?;
     let index = dest.join("index.html");
     std::fs::write(&index, html).map_err(|e| io("write", &index, e))?;
     let manifest = dest.join(page::MANIFEST);
@@ -433,6 +471,7 @@ pub fn bundle(opts: &Options) -> Result<Bundle, String> {
     }
     Ok(Bundle {
         dest: dest.clone(),
+        runtime: runtime.file,
         scripts: names,
         wasm_bytes: wasm_bytes.len() as u64,
         cache_key,

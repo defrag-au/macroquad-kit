@@ -376,12 +376,18 @@ impl<'a> Painter<'a> {
     /// [`Painter::tap`] for it. A `rect` covering most of the screen is taken to be one and does
     /// not show the pointer, so one written with `tapped` cannot point the whole page (found
     /// 2026-11-15: a reveal's tap-to-skip over the screen did exactly that).
+    ///
+    /// It also offers `rect` to the page as a press ([`macroquad_text::dom::press`]): on the web
+    /// a screen reader and the keyboard reach it as a button named by the text drawn on it.
     pub fn tapped(&self, rect: Rect) -> bool {
         let (mx, my) = mouse_position();
         let screen = screen_width() * screen_height();
         let anywhere = screen > 0.0 && rect.w * rect.h > screen * 0.5;
-        if self.pressable && !anywhere && rect.contains(vec2(mx, my)) {
-            crate::cursor::want_pointer();
+        if self.pressable && !anywhere {
+            macroquad_text::dom::press(rect);
+            if rect.contains(vec2(mx, my)) {
+                crate::cursor::want_pointer();
+            }
         }
         self.tap.is_some_and(|p| rect.contains(p))
     }
@@ -390,6 +396,9 @@ impl<'a> Painter<'a> {
     /// input only — no retained state). `enabled = false` reports all false.
     /// An enabled `rect` under the mouse shows the pointer ([`crate::cursor`]).
     pub fn interact(&self, rect: Rect, enabled: bool) -> Hit {
+        if enabled && self.pressable {
+            macroquad_text::dom::press(rect);
+        }
         let (mx, my) = mouse_position();
         let over = enabled && rect.contains(vec2(mx, my));
         if over && self.pressable {

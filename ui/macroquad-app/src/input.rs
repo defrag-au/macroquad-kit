@@ -496,6 +496,9 @@ impl Keyboard {
         {
             let _ = clicked;
             page::page_button(id, self.fractions(rect), action);
+            // The element is the button for a screen reader and the keyboard too: no press
+            // button over it as well.
+            macroquad_text::dom::handled(rect);
             let (done, refused) = page::page_button_counts(id);
             let seen = match self.seen_buttons.iter_mut().find(|(seen, ..)| *seen == id) {
                 Some(seen) => seen,

@@ -27,12 +27,36 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
 | `--wasm` | the bin target's file name, which is also the name staged in `--dest` |
 | `--title` | the page title and the web app manifest's name |
 | `--dest` | the output directory |
-| `--web` | a directory of extra `*.js` to copy — the crate's stamped page scripts |
+| `--web` | a directory of extra `*.js` to include — the crate's stamped page scripts |
 | `--assets` | a directory copied into `<dest>/assets/`, replacing it — a font the page fetches |
 | `--base` | a path prefix for every URL, such as `/pump/`; a trailing slash is added |
 | `--shell` | an `index.html` template with `__TITLE__`, `__SCRIPTS__` and `__WASM__` |
 | `--no-build` | stage a wasm that is already built |
 | `check <dir> <wasm>` | verify a bundle staged some other way |
+
+## The page's social card
+
+A canvas page gives a chat app or a social site nothing to preview, so a shared
+link is a bare URL. A client crate declares its card in its own `Cargo.toml`, and
+every bundle of it carries the description, Open Graph and Twitter tags in its
+`<head>` (the shell's `__HEAD__` token) with no flag to pass:
+
+```toml
+[package.metadata.mq-bundle]
+url = "https://robinhood.perp.quest/"   # the page's public address, https
+description = "One or two sentences under the title."
+title = "…"                             # optional: the page title otherwise
+site-name = "…"                         # optional
+image = "assets/card.jpg"               # optional: in the bundle, or an https URL
+image-size = [1200, 630]                # optional, with an image
+image-alt = "…"                         # optional, with an image
+```
+
+`url` is needed because a preview's image must be an absolute URL. An image
+named by path must be in the staged bundle (put it where `--assets` stages it):
+a card pointing at a missing file is refused. An unknown key is refused too, so a
+typo is not a silently missing tag. A custom `--shell` needs a `__HEAD__` token
+when the crate declares a card.
 
 ## What a run does
 
@@ -57,12 +81,19 @@ cargo run -q -p mq-bundle -- check <bundle-dir> <file.wasm>
    shell through `macroquad_gamekit::web::stamp_scripts(PageScript::AppShell)`,
    miniquad plugins through `stamp`. Nothing is copied from a plugin crate by
    hand. Two staged scripts that register the same miniquad plugin is a
-   refusal: the page loads both, and the second wins silently. `--assets`
-   copies its directory into `<dest>/assets/`, replacing it, for a file the
-   page fetches — a font for the text input, say.
+   refusal: the page loads both, and the second wins silently. The scripts are
+   written as **one file named by its content**, `runtime.<hash>.js`, which runs
+   each as its own `<script>` in load order (`src/runtime.rs`): the same
+   strictness, shared globals and error isolation as separate tags, one
+   request, and a cached copy can never be paired with another build's wasm.
+   Devtools still names each script (`sourceURL`). `--assets` copies its
+   directory into `<dest>/assets/`, replacing it, for a file the page fetches —
+   a font for the text input, say.
 6. **Renders** `index.html` from the shared shell (`src/page.rs`, `shell.html`)
-   with the wasm content-hashed into `load()`, so a proxy or browser cannot keep
-   a stale build alive, and writes `manifest.webmanifest`.
+   naming the runtime, with the wasm content-hashed into `load()`, so a proxy or
+   browser cannot keep a stale build alive, and writes `manifest.webmanifest`.
+   `index.html` is the one file a host must serve uncached; the runtime can be
+   cached for ever.
 7. **Checks** that every function the wasm imports is provided by a staged
    script (`src/imports.rs`). gl.js stubs a missing import instead of refusing
    to load, so this is where a missing plugin becomes an error naming the
@@ -95,8 +126,8 @@ is written, so the page looks finished. Read the exit status, not the directory.
 ✓ <title> → <dest> (<n> KB wasm, cache key <hash>, <m> imports provided by <scripts>)
 ```
 
-The dest holds `index.html`, `manifest.webmanifest`, the wasm, and the staged
-scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
+The dest holds `index.html`, `manifest.webmanifest`, the wasm, and
+`runtime.<hash>.js` holding the staged scripts. A failure exits 1 with `✗ <reason>`; `--help` prints the usage.
 
 ## The three things worth remembering
 

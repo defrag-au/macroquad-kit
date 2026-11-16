@@ -31,8 +31,19 @@
 //! ```
 //!
 //! `size` is the font size as a share of the canvas height, `family` is `m`
-//! (monospace) or `p` (proportional), and `clip` is `l,t,r,b` normalised, or
-//! `-` for none.
+//! (monospace) or `p` (proportional), followed by `h` when the run is part of a
+//! press's name, and `clip` is `l,t,r,b` normalised, or `-` for none.
+//!
+//! **Presses.** Ahead of the runs, one line for each press a widget offered
+//! ([`press`]) that has text on it, at what shows of it:
+//!
+//! ```text
+//! P  left  top  width  height  name
+//! ```
+//!
+//! The page lays a focusable button there, named `name`, for a screen reader
+//! and the keyboard; the runs flagged `h` are that name, so a screen reader
+//! hears the button rather than the words twice. See [`crate::press`].
 
 use macroquad::prelude::*;
 
@@ -61,9 +72,17 @@ mod imp {
     }
 
     /// Plugin handshake for gl.js: the page script's `version` must match.
+    /// 2: presses (`P` records) and the `h` family flag.
     #[unsafe(no_mangle)]
     extern "C" fn mqtext_crate_version() -> u32 {
-        1
+        2
+    }
+
+    /// A press a widget offered this frame, in canvas fractions.
+    struct Press {
+        rect: Rect,
+        clip: Option<Rect>,
+        hidden: bool,
     }
 
     /// One run, in canvas fractions, until the frame ships.
@@ -86,6 +105,10 @@ mod imp {
         /// whatever the page allows: the browser would otherwise draw it in a fallback face.
         registered: bool,
         runs: Vec<Run>,
+        presses: Vec<Press>,
+        /// Boxes the page already has a real element over (a field, a page button): no press
+        /// button goes there, and their words are left to that element.
+        handled: Vec<Rect>,
         /// The `i`/`M` width pair of each registered monospace font, at 32.
         mono: Vec<(f32, f32)>,
     }
@@ -195,6 +218,36 @@ mod imp {
         true
     }
 
+    pub fn press(rect: Rect, clips: &[Rect]) {
+        if !active() || !on_screen() {
+            return;
+        }
+        let p = projection();
+        let clip = clips.iter().fold(None::<Rect>, |acc, c| {
+            let c = rect_to_canvas(p, *c);
+            Some(match acc {
+                Some(a) => a.intersect(c).unwrap_or(Rect::new(c.x, c.y, 0.0, 0.0)),
+                None => c,
+            })
+        });
+        let rect = rect_to_canvas(p, rect);
+        SINK.with_borrow_mut(|s| {
+            s.presses.push(Press {
+                rect,
+                clip,
+                hidden: false,
+            })
+        });
+    }
+
+    pub fn handled(rect: Rect) {
+        if !active() || !on_screen() {
+            return;
+        }
+        let rect = rect_to_canvas(projection(), rect);
+        SINK.with_borrow_mut(|s| s.handled.push(rect));
+    }
+
     pub fn cover(rect: Rect, opacity: f32) {
         if !active() || !on_screen() || opacity <= 0.0 {
             return;
@@ -209,28 +262,76 @@ mod imp {
                     Effect::Dim(k) => run.alpha *= k,
                 }
             }
+            // A press under a scrim cannot be pressed (the sheet over it takes the tap), so a
+            // dimmed one goes as surely as a hidden one.
+            for press in s.presses.iter_mut().filter(|p| !p.hidden) {
+                match cover::effect(press.rect, press.clip, area, opacity) {
+                    Effect::Clear => {}
+                    Effect::Hidden | Effect::Dim(_) => press.hidden = true,
+                    Effect::Clip(strip) => press.clip = Some(strip),
+                }
+            }
         });
+    }
+
+    /// What of `rect` shows inside `clip`, if anything.
+    fn visible(rect: Rect, clip: Option<Rect>) -> Option<Rect> {
+        let v = match clip {
+            Some(c) => rect.intersect(c)?,
+            None => rect,
+        };
+        (v.w > 0.0 && v.h > 0.0).then_some(v)
     }
 
     pub fn flush() -> u32 {
         if !active() {
             return 0;
         }
-        let runs = SINK.with_borrow_mut(|s| std::mem::take(&mut s.runs));
-        let mut frame = String::with_capacity(runs.len() * 80);
+        let (runs, presses, handled) = SINK.with_borrow_mut(|s| {
+            (
+                std::mem::take(&mut s.runs),
+                std::mem::take(&mut s.presses),
+                std::mem::take(&mut s.handled),
+            )
+        });
+        let runs: Vec<Run> = runs
+            .into_iter()
+            .filter(|r| !r.hidden && r.alpha > 0.004)
+            .collect();
+        // Presses are named by what shows of the runs drawn on them; see `crate::press`.
+        let boxes: Vec<Rect> = presses
+            .iter()
+            .filter(|p| !p.hidden && !crate::press::is_handled(p.rect, &handled))
+            .filter_map(|p| visible(p.rect, p.clip))
+            .collect();
+        let seen: Vec<(Rect, &str)> = runs
+            .iter()
+            .map(|r| (visible(r.rect, r.clip).unwrap_or(r.rect), r.text.as_str()))
+            .collect();
+        let named = crate::press::name_presses(&boxes, &seen);
+        let mut frame = String::with_capacity(runs.len() * 80 + named.presses.len() * 60);
         let mut sent = 0;
-        for run in runs.iter().filter(|r| !r.hidden && r.alpha > 0.004) {
+        for (r, name) in &named.presses {
+            let _ = writeln!(
+                frame,
+                "P\t{:.5}\t{:.5}\t{:.5}\t{:.5}\t{name}",
+                r.x, r.y, r.w, r.h
+            );
+        }
+        for (run, claimed) in runs.iter().zip(&named.claimed) {
             let r = run.rect;
             let a = (run.alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
             let _ = write!(
                 frame,
-                "{:.5}\t{:.5}\t{:.5}\t{:.5}\t{:.5}\t{}\t{:02x}{:02x}{:02x}{a:02x}\t",
+                "{:.5}\t{:.5}\t{:.5}\t{:.5}\t{:.5}\t{}{}\t{:02x}{:02x}{:02x}{a:02x}\t",
                 r.x,
                 r.y,
                 r.w,
                 r.h,
                 run.size,
                 if run.mono { 'm' } else { 'p' },
+                // `h`: part of a press's name, so hidden from a screen reader.
+                if *claimed { "h" } else { "" },
                 run.rgb[0],
                 run.rgb[1],
                 run.rgb[2],
@@ -275,9 +376,31 @@ mod imp {
 
     pub fn cover(_: Rect, _: f32) {}
 
+    pub fn press(_: Rect, _: &[Rect]) {}
+
+    pub fn handled(_: Rect) {}
+
     pub fn flush() -> u32 {
         0
     }
+}
+
+/// The page already has a real element over `rect` this frame (a text field's
+/// input, a page button): a press offered there gets no button of its own, so
+/// the keyboard does not stop twice. Called by `macroquad-app`'s keyboard as it
+/// places those elements.
+pub fn handled(rect: Rect) {
+    imp::handled(rect);
+}
+
+/// Something a widget offers to be pressed this frame, over `rect` in the
+/// current camera's units: called by `macroquad_widgets::Painter::tapped` and
+/// `interact`, so an app never calls it. The page lays a real, focusable
+/// button over it, named by the text drawn on it ([`crate::press`]), for a
+/// screen reader and a keyboard; activating that button taps the canvas at its
+/// centre. A no-op natively and when the page draws no text.
+pub fn press(rect: Rect) {
+    imp::press(rect, &report::clips());
 }
 
 /// Whether text goes to the page this run: a web build whose page asked.
@@ -324,4 +447,23 @@ pub(crate) fn take(
 /// Returns how many runs went.
 pub fn flush() -> u32 {
     imp::flush()
+}
+
+#[cfg(test)]
+mod tests {
+    /// gl.js refuses a plugin whose `version` is not the crate's: the two move together, and
+    /// the page script reads the records this crate writes.
+    #[test]
+    fn the_page_script_is_the_version_that_reads_presses() {
+        let js = super::PLUGIN_JS;
+        assert!(
+            js.contains("miniquad_add_plugin({ register_plugin, version: 2, name: 'mqtext' });")
+        );
+        assert!(js.contains("if (f[0] === 'P')"), "press records unread");
+        assert!(js.contains("f[5][1] === 'h'"), "the name flag unread");
+        assert!(
+            js.contains("pointer-events:none"),
+            "a press button must not take the finger"
+        );
+    }
 }

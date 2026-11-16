@@ -364,6 +364,15 @@ impl<B: EvmBridge> EvmHost<B> {
         self.address.as_deref()
     }
 
+    /// Whether a request to the wallet is under way: a connect, or the silent
+    /// reconnect on load. With no address reported and nothing asked, the
+    /// wallet is not connected, rather than not connected *yet* — though a
+    /// remembered wallet that has not announced is reconnected when it does,
+    /// so a page judging this soon after load should allow for announcements.
+    pub fn is_asking(&self) -> bool {
+        !matches!(self.step, Step::Idle)
+    }
+
     fn ask(&mut self, wallet: &str, silent: bool) {
         self.drop_step();
         self.wrong_chain = false;
@@ -1002,8 +1011,20 @@ mod tests {
             host.bridge.asked,
             [("uuid-rabby-next-load".to_string(), true)]
         );
+        assert!(host.is_asking(), "the silent reconnect is under way");
         run(&mut host, 2);
         assert!(host.connection().is_connected());
+        assert!(!host.is_asking());
+    }
+
+    /// A wallet asked for nothing has nothing under way: a page can tell "not connected" from
+    /// "still reconnecting".
+    #[test]
+    fn a_host_with_nothing_remembered_is_not_asking() {
+        let mut host = EvmHost::with_bridge(fake());
+        run(&mut host, 2);
+        assert!(!host.is_asking());
+        assert_eq!(host.reported_address(), None);
     }
 
     /// A uuid remembered by an older build still reconnects where it holds.

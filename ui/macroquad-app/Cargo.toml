@@ -21,6 +21,8 @@ macroquad = "0.4"
 macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }
 # `Painter`, `Theme`, `Scroll`, the rounded shapes and the sheet chrome.
 macroquad-widgets = { workspace = true }
+# `dom::handled`: a page button tells the text sink its box has a real element already.
+macroquad-text = { path = "../macroquad-text" }
 # `Breakpoint`, `TextSize`, `Token`.
 ui-theme = { workspace = true, features = ["macroquad"] }
 # A request's JSON body and a reply decoded into the caller's type.

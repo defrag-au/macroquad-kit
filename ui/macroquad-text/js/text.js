@@ -58,6 +58,10 @@
         maxMs: 0,
         // Browser width over macroquad's width, sampled when a span's text or font changes.
         ratios: [],
+        // Presses placed last frame, buttons made for them ever, and taps they sent the canvas.
+        presses: 0,
+        pressesMade: 0,
+        pressed: 0,
     };
     window.__mqtext = stats;
     // A frame counter in both modes, for browser-shot's rate and frame waits: the canvas mode's
@@ -161,6 +165,115 @@
         return t;
     }
 
+    // ── Presses ─────────────────────────────────────────────────────────────
+    //
+    // A `P` line is something the app offers to be pressed, named by the text
+    // drawn on it (macroquad-text's `press`). Each becomes a real <button> in a
+    // layer of its own, there for a screen reader and the keyboard, never for
+    // the finger: `pointer-events: none`, so a tap still lands on the canvas and
+    // a drag that starts on a button still scrolls. Activating one (Enter,
+    // Space, a screen reader's double tap) taps the canvas at its centre, so
+    // the press does exactly what a finger on it would. Its words are flagged
+    // `h` in the runs and hidden from the screen reader, which hears the button.
+    //
+    // Buttons are kept by name (and which of that name), not by index, so the
+    // one with focus stays the same button while the page moves under it.
+
+    let pressLayer = null;
+    const pressButtons = new Map(); // key -> button
+    // Up to this many presses a frame; a page offering more is not a page of buttons.
+    const MAX_PRESSES = 200;
+
+    function ensurePressLayer() {
+        if (pressLayer) return pressLayer;
+        const style = document.createElement('style');
+        style.textContent =
+            '#mqpress button{position:absolute;left:0;top:0;margin:0;padding:0;border:0;' +
+            'background:transparent;color:transparent;font-size:1px;pointer-events:none;' +
+            'border-radius:8px;transform-origin:0 0}' +
+            '#mqpress button:focus{outline:none}' +
+            '#mqpress button:focus-visible{outline:3px solid #ffffff;outline-offset:2px;' +
+            'box-shadow:0 0 0 6px rgba(0,0,0,0.6)}';
+        document.head.appendChild(style);
+        pressLayer = document.createElement('div');
+        pressLayer.id = 'mqpress';
+        const s = pressLayer.style;
+        s.position = 'fixed';
+        s.overflow = 'visible';
+        s.pointerEvents = 'none';
+        s.zIndex = '6';
+        s.left = '0px';
+        s.top = '0px';
+        document.body.appendChild(pressLayer);
+        return pressLayer;
+    }
+
+    // A tap on the canvas at (x, y) in client pixels: down now, up two frames
+    // later, so the app sees a press and its release in separate frames as it
+    // would a finger's.
+    function tapCanvas(x, y) {
+        const c = canvasEl();
+        if (!c) return;
+        const at = { clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, cancelable: true };
+        c.dispatchEvent(new MouseEvent('mousemove', at));
+        c.dispatchEvent(new MouseEvent('mousedown', at));
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                c.dispatchEvent(new MouseEvent('mouseup', Object.assign({}, at, { buttons: 0 })));
+            });
+        });
+        stats.pressed += 1;
+    }
+
+    function makePressButton() {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.addEventListener('click', function (e) {
+            e.preventDefault();
+            const r = b.getBoundingClientRect();
+            tapCanvas(r.left + r.width / 2, r.top + r.height / 2);
+        });
+        return b;
+    }
+
+    // Place this frame's presses: `list` is [x, y, w, h, name] in layer pixels.
+    function placePresses(list, box) {
+        ensurePressLayer();
+        const ps = pressLayer.style;
+        const lw = box.width + 'px', lh = box.height + 'px', ll = box.left + 'px', lt = box.top + 'px';
+        if (ps.width !== lw) ps.width = lw;
+        if (ps.height !== lh) ps.height = lh;
+        if (ps.left !== ll) ps.left = ll;
+        if (ps.top !== lt) ps.top = lt;
+        const seen = new Set();
+        const count = new Map();
+        for (const [x, y, w, h, name] of list.slice(0, MAX_PRESSES)) {
+            const k = (count.get(name) || 0) + 1;
+            count.set(name, k);
+            const key = name + '\u0000' + k;
+            seen.add(key);
+            let b = pressButtons.get(key);
+            if (!b) {
+                b = makePressButton();
+                b.setAttribute('aria-label', name);
+                b._v = {};
+                pressButtons.set(key, b);
+                pressLayer.appendChild(b);
+                stats.pressesMade += 1;
+            }
+            set(b, 'transform', 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)');
+            set(b, 'width', w.toFixed(1) + 'px');
+            set(b, 'height', h.toFixed(1) + 'px');
+        }
+        for (const [key, b] of pressButtons) {
+            if (!seen.has(key)) {
+                b.remove();
+                pressButtons.delete(key);
+            }
+        }
+        stats.presses = seen.size;
+    }
+
     function mqtext_frame(frame_js) {
         const started = performance.now();
         const frame = consume_js_object(frame_js);
@@ -180,15 +293,24 @@
         const lines = frame.length ? frame.split('\n') : [];
         let fresh = null;
         let n = 0;
+        const presses = [];
         // Writes only: nothing below reads layout until every span is placed.
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             if (!line) continue;
             const f = line.split('\t');
+            if (f[0] === 'P') {
+                if (f.length >= 6) {
+                    presses.push([+f[1] * W, +f[2] * H, +f[3] * W, +f[4] * H, f.slice(5).join('\t')]);
+                }
+                continue;
+            }
             if (f.length < 9) continue;
             const x = +f[0] * W, y = +f[1] * H, w = +f[2] * W, h = +f[3] * H;
             const size = +f[4] * H;
-            const family = f[5] === 'm' ? 'mq-m' : 'mq-p';
+            const family = f[5][0] === 'm' ? 'mq-m' : 'mq-p';
+            // Part of a press's name: the screen reader hears the button instead.
+            const named = f[5][1] === 'h';
             const color = '#' + f[6];
             const text = f.slice(8).join('\t');
             let span = spans[n];
@@ -215,6 +337,12 @@
                 span._nwFont = span._v.font;
                 unmeasured.add(span);
             }
+            if (span._named !== named) {
+                span._named = named;
+                if (named) span.setAttribute('aria-hidden', 'true');
+                else span.removeAttribute('aria-hidden');
+                stats.writes += 1;
+            }
             span._x = x;
             span._y = y;
             set(span, 'transform', transformOf(span, x, y));
@@ -234,6 +362,7 @@
             set(spans[i], 'display', 'none');
             unmeasured.delete(spans[i]);
         }
+        placePresses(presses, box);
 
         // Reads, after every write: one layout for the frame, at most WIDTH_READS spans.
         if (unmeasured.size && (fit || stats.ratios.length < 4000)) {
@@ -271,5 +400,5 @@
         importObject.env.mqtext_frame = mqtext_frame;
     };
 
-    miniquad_add_plugin({ register_plugin, version: 1, name: 'mqtext' });
+    miniquad_add_plugin({ register_plugin, version: 2, name: 'mqtext' });
 })();
