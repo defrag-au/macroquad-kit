@@ -22,6 +22,9 @@ use super::file::{
 use super::timeline::{Layer, Motion, Scene};
 use crate::clip::with_clip;
 use crate::shape::{Finish, RoundedArt, fill_rounded, stroke_rounded};
+// The kit's exact circles, not macroquad's polygon approximation; the explicit
+// import shadows the one `macroquad::prelude::*` brings in.
+use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
 use crate::text::{self, MeasureAt, RichText, TextLayout, TextStyle};
 
 /// A phone's frame around a screen of a given shape.
