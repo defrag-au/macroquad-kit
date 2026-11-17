@@ -62,7 +62,93 @@ pub struct Reel {
     pub images: BTreeMap<String, String>,
     /// Named fonts and their paths (`font noto app/assets/Noto.ttf`).
     pub fonts: BTreeMap<String, String>,
+    /// Named text styles (`style cap noto 46 #ffffff em=gold centre wrap=860`).
+    pub styles: BTreeMap<String, Style>,
     pub shots: Vec<Shot>,
+}
+
+/// How a run of text is set: a font, a size and an ink, and how it sits.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Style {
+    /// A font named by a `font` line.
+    pub font: String,
+    /// Pixels.
+    pub size: f32,
+    pub ink: Rgba,
+    /// The ink of `*emphasised*` words; the style's own ink when not given.
+    pub em: Option<Rgba>,
+    /// A hard drop shadow, 4 px down.
+    pub shadow: Option<Rgba>,
+    pub align: Align,
+    pub anchor: Anchor,
+    /// The width lines wrap at, in pixels; no wrapping when not given.
+    pub wrap: Option<f32>,
+    /// Extra space between lines, in pixels.
+    pub gap: f32,
+    /// A rounded plate behind the text: a tag.
+    pub plate: Option<Rgba>,
+    /// The plate's or border's padding: across, then down.
+    pub pad: [f32; 2],
+    pub radius: f32,
+    /// A border of this width in the style's ink: a stamp.
+    pub border: f32,
+}
+
+/// Where a text item's `at` is across its lines: their left end, their middle, or their right
+/// end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Centre,
+    Right,
+}
+
+/// Where a text item's `at` is up and down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Anchor {
+    /// The top of its first line.
+    Top,
+    /// The middle of its ink: what was drawn, not the line box, which leaves room below for
+    /// descenders that capitals have not got. A tag and the label beside it, both `middle` at
+    /// one y, share a centre line whatever their sizes.
+    Middle,
+}
+
+/// A stretch of text in one weight: `*stars*` around words emphasise them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Run {
+    pub text: String,
+    pub em: bool,
+}
+
+/// `text` split into its plain and `*emphasised*` runs. An unclosed star emphasises to the end.
+pub fn runs(text: &str) -> Vec<Run> {
+    let mut out: Vec<Run> = Vec::new();
+    for (i, part) in text.split('*').enumerate() {
+        if !part.is_empty() {
+            out.push(Run {
+                text: part.to_string(),
+                em: i % 2 == 1,
+            });
+        }
+    }
+    out
+}
+
+/// One row of a sheet, top to bottom.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Row {
+    /// A line of text in a style.
+    Line { style: String, text: String },
+    /// Text in a filled, rounded box: the message being signed.
+    Boxed {
+        style: String,
+        text: String,
+        fill: Rgba,
+    },
+    /// Buttons side by side, sharing the width: each outlined in the style's ink, the last
+    /// filled with it.
+    Buttons { style: String, labels: Vec<String> },
 }
 
 /// One shot: a length, the items it places, the actions that move them, and the game in it.
@@ -95,6 +181,8 @@ pub enum Cut {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameShot {
     pub line: usize,
+    /// `@name`, without the `@`: what a `set` action names to change the game mid-shot.
+    pub name: Option<String>,
     /// The game's viewport in points, as a capture's `--size`.
     pub size: (u32, u32),
     /// Pixels a point, as a capture's `--px`.
@@ -144,11 +232,36 @@ pub enum Look {
     Phone {
         at: [f32; 2],
         width: f32,
-        label: Option<String>,
+        label: Option<Label>,
         /// The rim and the label's colour (`accent=queue`).
         accent: Option<Rgba>,
         screen: Screen,
     },
+    /// Text in a style, at `at` (see [`Align`]), turned `rot` degrees.
+    Text {
+        style: String,
+        at: [f32; 2],
+        rot: f32,
+        text: String,
+    },
+    /// A finger's touch: a ring `size` across, centred on `at`. It shows only while a `pulse`
+    /// swells and fades it.
+    Tap { at: [f32; 2], size: f32, ink: Rgba },
+    /// A sheet up from the bottom of its parent phone's screen, cut to it, over a scrim that
+    /// darkens the screen as the sheet arrives: a wallet asking for a signature.
+    Sheet {
+        fill: Rgba,
+        /// How dark the screen behind goes, 0 to 1.
+        scrim: f32,
+        rows: Vec<Row>,
+    },
+}
+
+/// A chip on a phone's top edge, in a style (`label="MetaMask's browser" chip=chip`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Label {
+    pub text: String,
+    pub style: String,
 }
 
 /// What a phone's screen shows.
@@ -211,7 +324,18 @@ pub enum Verb {
         ease: Ease,
         yoyo: u32,
     },
+    /// The item shows, swells from [`PULSE_FROM`] to [`PULSE_TO`] of its size and fades out over
+    /// `seconds`, and is gone after: a tap. An item that pulses shows only while it does.
+    Pulse { seconds: f32 },
+    /// A condition line handed to the shot's game, as its `set` lines are: what a tap on its
+    /// screen would have done (`8 set @app identity registered.json`). Only the game takes one.
+    Set(String),
 }
+
+/// A pulse's scale at its start.
+pub const PULSE_FROM: f32 = 0.4;
+/// A pulse's scale at its end.
+pub const PULSE_TO: f32 = 1.5;
 
 /// The ways an item arrives and leaves: each is a pose it comes from or goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -585,9 +709,21 @@ struct Parser {
     inks: BTreeMap<String, Rgba>,
     images: BTreeMap<String, String>,
     fonts: BTreeMap<String, String>,
+    styles: BTreeMap<String, Style>,
     shots: Vec<Shot>,
-    /// Whether an indented line has a `game` to belong to.
-    under_game: bool,
+    /// What an indented line belongs to.
+    under: Under,
+}
+
+/// The unindented line an indented one belongs to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Under {
+    #[default]
+    Nothing,
+    /// The shot's `game`: its `set` lines.
+    Game,
+    /// The shot's last item, a `sheet`: its rows.
+    Sheet,
 }
 
 impl Parser {
@@ -601,7 +737,7 @@ impl Parser {
             if raw.starts_with(char::is_whitespace) {
                 self.child(line, head, rest)?;
             } else {
-                self.under_game = false;
+                self.under = Under::Nothing;
                 self.top(line, head, rest)?;
             }
         }
@@ -622,8 +758,105 @@ impl Parser {
             inks: self.inks,
             images: self.images,
             fonts: self.fonts,
+            styles: self.styles,
             shots: self.shots,
         })
+    }
+
+    /// A style named by an earlier `style` line.
+    fn style_named(&self, line: usize, name: &str) -> Result<String, ReelError> {
+        if self.styles.contains_key(name) {
+            Ok(name.to_string())
+        } else {
+            Err(err(
+                line,
+                format!("no style called `{name}`; name it with a `style {name} …` line first"),
+            ))
+        }
+    }
+
+    /// `style NAME FONT SIZE INK [options]`.
+    fn style(&mut self, line: usize, mut words: Words) -> Result<(), ReelError> {
+        let positional = words.texts();
+        let [name, font, size, ink, flags @ ..] = &positional[..] else {
+            return Err(err(
+                line,
+                "write `style NAME FONT SIZE INK [left|centre|right] [options]`",
+            ));
+        };
+        if !self.fonts.contains_key(font) {
+            return Err(err(
+                line,
+                format!(
+                    "no font called `{font}`; name it with `font {font} PATH` before the first shot"
+                ),
+            ));
+        }
+        let mut align = Align::Left;
+        let mut anchor = Anchor::Top;
+        for flag in flags {
+            match flag.as_str() {
+                "left" => align = Align::Left,
+                "centre" | "center" => align = Align::Centre,
+                "right" => align = Align::Right,
+                "top" => anchor = Anchor::Top,
+                "middle" => anchor = Anchor::Middle,
+                other => {
+                    return Err(err(
+                        line,
+                        format!(
+                            "`{other}`: a style aligns left, centre or right, and top or middle"
+                        ),
+                    ));
+                }
+            }
+        }
+        let mut colour = |key: &str| -> Result<Option<Rgba>, ReelError> {
+            words.take(key).map(|c| self.colour(line, &c)).transpose()
+        };
+        let em = colour("em")?;
+        let shadow = colour("shadow")?;
+        let plate = colour("plate")?;
+        let mut num = |key: &str, default: f32| -> Result<f32, ReelError> {
+            words
+                .take(key)
+                .map(|v| number(line, key, &v))
+                .transpose()
+                .map(|n| n.unwrap_or(default))
+        };
+        let wrap = num("wrap", 0.0)?;
+        let gap = num("gap", 0.0)?;
+        let radius = num("radius", 0.0)?;
+        let border = num("border", 0.0)?;
+        let pad = match words.take("pad") {
+            Some(p) => point(line, &p)?,
+            None => [0.0, 0.0],
+        };
+        words.done(
+            "style",
+            &[
+                "em", "shadow", "plate", "wrap", "gap", "radius", "border", "pad",
+            ],
+        )?;
+        let style = Style {
+            font: font.clone(),
+            size: number(line, "size", size)?,
+            ink: self.colour(line, ink)?,
+            em,
+            shadow,
+            align,
+            anchor,
+            wrap: (wrap > 0.0).then_some(wrap),
+            gap,
+            plate,
+            pad,
+            radius,
+            border,
+        };
+        if self.styles.insert(name.clone(), style).is_some() {
+            return Err(err(line, format!("a second style called `{name}`")));
+        }
+        Ok(())
     }
 
     /// A colour: a named ink, or `#hex`.
@@ -703,8 +936,11 @@ impl Parser {
                 }
                 words.done(keyword, &[])
             }
+            "style" => self.style(line, words),
             "game" => self.game(line, words),
-            "fill" | "image" | "view" | "phone" => self.item(line, keyword, words),
+            "fill" | "image" | "view" | "phone" | "text" | "tap" | "sheet" => {
+                self.item(line, keyword, words)
+            }
             other => Err(err(line, format!("`{other}` is not a reel line"))),
         }
     }
@@ -771,6 +1007,7 @@ impl Parser {
     }
 
     fn game(&mut self, line: usize, mut words: Words) -> Result<(), ReelError> {
+        let name = words.name()?;
         let mut from = Continuity::Reset;
         let mut viewport = None;
         for word in &words.positional {
@@ -812,6 +1049,7 @@ impl Parser {
         }
         shot.game = Some(GameShot {
             line,
+            name,
             size,
             px,
             rate,
@@ -819,8 +1057,146 @@ impl Parser {
             from,
             sets: Vec::new(),
         });
-        self.under_game = true;
+        self.under = Under::Game;
         Ok(())
+    }
+
+    /// `text [@name] STYLE at=X,Y [rot=DEG] "…"`.
+    fn text(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
+        let usage = "write `text [@name] STYLE at=X,Y \"…\"`";
+        let (Some(style), Some(body)) = (
+            words.positional.iter().find(|t| !t.quoted),
+            words.positional.iter().find(|t| t.quoted),
+        ) else {
+            return Err(err(line, usage));
+        };
+        if words.positional.len() != 2 {
+            return Err(err(line, usage));
+        }
+        let style = self.style_named(line, &style.text)?;
+        let text = body.text.clone();
+        let at = point(
+            line,
+            &words
+                .take("at")
+                .ok_or_else(|| err(line, "text needs `at=X,Y`"))?,
+        )?;
+        let rot = words
+            .take("rot")
+            .map(|r| number(line, "rot", &r))
+            .transpose()?
+            .unwrap_or(0.0);
+        words.done("text", &["at", "rot", "in"])?;
+        Ok(Look::Text {
+            style,
+            at,
+            rot,
+            text,
+        })
+    }
+
+    /// `tap [@name] at=X,Y [size=120] [ink=#fff]`.
+    fn tap(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
+        if !words.positional.is_empty() {
+            return Err(err(line, "write `tap @name at=X,Y [size=PX] [ink=INK]`"));
+        }
+        let at = point(
+            line,
+            &words
+                .take("at")
+                .ok_or_else(|| err(line, "a tap needs `at=X,Y`"))?,
+        )?;
+        let size = words
+            .take("size")
+            .map(|s| number(line, "size", &s))
+            .transpose()?
+            .unwrap_or(120.0);
+        let ink = words
+            .take("ink")
+            .map(|c| self.colour(line, &c))
+            .transpose()?
+            .unwrap_or(Rgba::WHITE);
+        words.done("tap", &["at", "size", "ink", "in"])?;
+        Ok(Look::Tap { at, size, ink })
+    }
+
+    /// `sheet [@name] in=@phone [fill=INK] [scrim=0.6]`, its rows indented under it.
+    fn sheet(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
+        if !words.positional.is_empty() {
+            return Err(err(
+                line,
+                "write `sheet @name in=@phone [fill=INK] [scrim=0.6]`",
+            ));
+        }
+        let fill = words
+            .take("fill")
+            .map(|c| self.colour(line, &c))
+            .transpose()?
+            .unwrap_or(Rgba([0xf3, 0xf5, 0xf2, 255]));
+        let scrim = words
+            .take("scrim")
+            .map(|s| number(line, "scrim", &s))
+            .transpose()?
+            .unwrap_or(0.6)
+            .clamp(0.0, 1.0);
+        words.done("sheet", &["fill", "scrim", "in"])?;
+        Ok(Look::Sheet {
+            fill,
+            scrim,
+            rows: Vec::new(),
+        })
+    }
+
+    /// A sheet's row: `line STYLE "…"`, `box STYLE "…" [fill=INK]` or `buttons STYLE "…" "…"`.
+    fn row(&self, line: usize, head: &Token, rest: &[Token]) -> Result<Row, ReelError> {
+        let mut words = Words::new(line, rest)?;
+        let style = words
+            .positional
+            .first()
+            .filter(|t| !t.quoted)
+            .map(|t| t.text.clone())
+            .ok_or_else(|| err(line, format!("`{}` needs a style first", head.text)))?;
+        let style = self.style_named(line, &style)?;
+        let texts: Vec<String> = words.positional[1..]
+            .iter()
+            .filter(|t| t.quoted)
+            .map(|t| t.text.clone())
+            .collect();
+        if texts.len() + 1 != words.positional.len() {
+            return Err(err(line, "a row is a style and then quoted text"));
+        }
+        let one = |texts: &[String]| match texts {
+            [t] => Ok(t.clone()),
+            _ => Err(err(line, format!("`{}` takes one quoted text", head.text))),
+        };
+        let row = match head.text.as_str() {
+            "line" => Row::Line {
+                style,
+                text: one(&texts)?,
+            },
+            "box" => Row::Boxed {
+                style,
+                text: one(&texts)?,
+                fill: words
+                    .take("fill")
+                    .map(|c| self.colour(line, &c))
+                    .transpose()?
+                    .unwrap_or(Rgba([0xe2, 0xe7, 0xe0, 255])),
+            },
+            "buttons" if !texts.is_empty() => Row::Buttons {
+                style,
+                labels: texts,
+            },
+            "buttons" => return Err(err(line, "`buttons` needs at least one label")),
+            other => {
+                return Err(err(
+                    line,
+                    format!("`{other}` is not a sheet row: line, box or buttons"),
+                ));
+            }
+        };
+        words.done(&head.text, &["fill"])?;
+        Ok(row)
     }
 
     fn item(&mut self, line: usize, keyword: &str, mut words: Words) -> Result<(), ReelError> {
@@ -875,6 +1251,12 @@ impl Parser {
                     fit,
                 }
             }
+            "text" => self.text(line, words)?,
+            "tap" => self.tap(line, words)?,
+            "sheet" => {
+                self.under = Under::Sheet;
+                self.sheet(line, words)?
+            }
             _ => self.phone(line, words)?,
         };
         self.shot(line)?.items.push(Item {
@@ -900,7 +1282,20 @@ impl Parser {
                 .take("width")
                 .ok_or_else(|| err(line, "a phone needs `width=W`"))?,
         )?;
-        let label = words.take("label");
+        let label = match (words.take("label"), words.take("chip")) {
+            (Some(text), Some(style)) => Some(Label {
+                text,
+                style: self.style_named(line, &style)?,
+            }),
+            (Some(_), None) => {
+                return Err(err(
+                    line,
+                    "a phone's `label=` needs `chip=STYLE` to set it in",
+                ));
+            }
+            (None, Some(_)) => return Err(err(line, "`chip=` styles a `label=`; give one")),
+            (None, None) => None,
+        };
         let accent = words
             .take("accent")
             .map(|c| self.colour(line, &c))
@@ -917,7 +1312,10 @@ impl Parser {
                 "write `phone [@name] at=X,Y width=W [label=\"…\"]`",
             ));
         }
-        words.done("phone", &["at", "width", "label", "accent", "blank", "in"])?;
+        words.done(
+            "phone",
+            &["at", "width", "label", "chip", "accent", "blank", "in"],
+        )?;
         Ok(Look::Phone {
             at,
             width,
@@ -955,6 +1353,29 @@ impl Parser {
                 "a time needs an action: enter, exit, show, hide or move",
             )
         })?;
+        // A game's `set` takes its line as written, `=` and all.
+        if verb.text == "set" {
+            let (target, line_text) = match rest.split_first() {
+                Some((t, more))
+                    if t.text.starts_with('@') && t.text.len() > 1 && !more.is_empty() =>
+                {
+                    (t.text[1..].to_string(), more)
+                }
+                _ => return Err(err(line, "write `TIME set @game LINE`")),
+            };
+            let text = line_text
+                .iter()
+                .map(|t| t.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.shot(line)?.actions.push(Action {
+                line,
+                at,
+                item: target,
+                verb: Verb::Set(text),
+            });
+            return Ok(());
+        }
         let mut words = Words::new(line, rest)?;
         let item = words.name()?.ok_or_else(|| {
             err(
@@ -1043,10 +1464,19 @@ impl Parser {
                     yoyo,
                 }
             }
+            "pulse" => {
+                let seconds = match &positional[..] {
+                    [] => 0.55,
+                    [s] => number(line, "length", s)?,
+                    _ => return Err(err(line, "write `TIME pulse @item [SECONDS]`")),
+                };
+                words.done("pulse", &[])?;
+                Verb::Pulse { seconds }
+            }
             other => {
                 return Err(err(
                     line,
-                    format!("`{other}` is not an action: enter, exit, show, hide or move"),
+                    format!("`{other}` is not an action: enter, exit, show, hide, move or pulse"),
                 ));
             }
         };
@@ -1060,11 +1490,26 @@ impl Parser {
     }
 
     fn child(&mut self, line: usize, head: &Token, rest: &[Token]) -> Result<(), ReelError> {
-        if !self.under_game {
-            return Err(err(
-                line,
-                "an indented line belongs under a `game`; nothing above it takes one",
-            ));
+        match self.under {
+            Under::Nothing => {
+                return Err(err(
+                    line,
+                    "an indented line belongs under a `game` or a `sheet`; nothing above it takes one",
+                ));
+            }
+            Under::Sheet => {
+                let row = self.row(line, head, rest)?;
+                let shot = self.shot(line)?;
+                if let Some(Item {
+                    look: Look::Sheet { rows, .. },
+                    ..
+                }) = shot.items.last_mut()
+                {
+                    rows.push(row);
+                }
+                return Ok(());
+            }
+            Under::Game => {}
         }
         if head.text != "set" {
             return Err(err(
@@ -1086,7 +1531,7 @@ impl Parser {
         let shot = self.shot(line)?;
         shot.game
             .as_mut()
-            .expect("under_game follows a game line")
+            .expect("Under::Game follows a game line")
             .sets
             .push((line, text));
         Ok(())
@@ -1119,6 +1564,25 @@ fn check(shot: &Shot) -> Result<(), ReelError> {
                 return Err(err(item.line, "an item cannot be inside itself"));
             }
         }
+        if let Look::Sheet { rows, .. } = &item.look {
+            let in_phone = item.parent.as_ref().is_some_and(|p| {
+                shot.items
+                    .iter()
+                    .any(|i| i.name.as_ref() == Some(p) && matches!(i.look, Look::Phone { .. }))
+            });
+            if !in_phone {
+                return Err(err(
+                    item.line,
+                    "a sheet rises in a phone: give it `in=@phone`",
+                ));
+            }
+            if rows.is_empty() {
+                return Err(err(
+                    item.line,
+                    "a sheet with no rows: indent `line`, `box` or `buttons` lines under it",
+                ));
+            }
+        }
         let shows_game = matches!(
             item.look,
             Look::View
@@ -1137,12 +1601,36 @@ fn check(shot: &Shot) -> Result<(), ReelError> {
             ));
         }
     }
+    let game = shot.game.as_ref().and_then(|g| g.name.as_deref());
     for action in &shot.actions {
-        if !names.contains_key(action.item.as_str()) {
-            return Err(err(
-                action.line,
-                format!("no item called `@{}` in `{}`", action.item, shot.name),
-            ));
+        let on_game = game == Some(action.item.as_str());
+        match (&action.verb, on_game) {
+            (Verb::Set(_), true) => {}
+            (Verb::Set(_), false) => {
+                return Err(err(
+                    action.line,
+                    format!(
+                        "`set` changes the shot's game: name it with `game @{} …`",
+                        action.item
+                    ),
+                ));
+            }
+            (_, true) => {
+                return Err(err(
+                    action.line,
+                    format!(
+                        "`@{}` is the game, which takes `set`; move the item that shows it",
+                        action.item
+                    ),
+                ));
+            }
+            (_, false) if !names.contains_key(action.item.as_str()) => {
+                return Err(err(
+                    action.line,
+                    format!("no item called `@{}` in `{}`", action.item, shot.name),
+                ));
+            }
+            _ => {}
         }
         if action.at >= shot.seconds {
             return Err(err(
@@ -1166,6 +1654,8 @@ reel 1080x1920 30
 ink ground #070c09
 ink gold #f5c542
 image lab app/static/scene/lab-2048.jpg
+font mono app/assets/Mono.ttf
+style chip mono 28 ground plate=#dfffd0 pad=20,8 radius=99
 
 [title] 3.6 cut=flash:0.35
 image lab
@@ -1177,7 +1667,7 @@ fill radial #12301a ground
 game 390x844 px=3 rate=1.25
   set bundle app/fixtures/bundle.json
   set identity app/fixtures/identity-climber.json
-phone @ph at=266,256 width=548 label="Cardano wallet's browser"
+phone @ph at=266,256 width=548 label="Cardano wallet's browser" chip=chip
 0.3 move @ph 0.45 y=-240 rot=-22 ease=sine-in-out yoyo=5
 0   enter @ph slide
 12.5 exit @ph drop
@@ -1229,7 +1719,10 @@ phone @ph at=266,256 width=548 label="Cardano wallet's browser"
             Look::Phone {
                 at: [266.0, 256.0],
                 width: 548.0,
-                label: Some("Cardano wallet's browser".into()),
+                label: Some(Label {
+                    text: "Cardano wallet's browser".into(),
+                    style: "chip".into(),
+                }),
                 accent: None,
                 screen: Screen::Game,
             }
@@ -1294,7 +1787,7 @@ phone @ph at=266,256 width=548 label="Cardano wallet's browser"
             ),
             (
                 "  set x",
-                "line 3: an indented line belongs under a `game`; nothing above it takes one",
+                "line 3: an indented line belongs under a `game` or a `sheet`; nothing above it takes one",
             ),
             (
                 "game 390x844 speed=2",
@@ -1327,7 +1820,19 @@ phone @ph at=266,256 width=548 label="Cardano wallet's browser"
             ),
             (
                 "fill @x #fff\n1 spin @x",
-                "line 4: `spin` is not an action: enter, exit, show, hide or move",
+                "line 4: `spin` is not an action: enter, exit, show, hide, move or pulse",
+            ),
+            (
+                "text cap at=1,1 \"hi\"",
+                "line 3: no style called `cap`; name it with a `style cap …` line first",
+            ),
+            (
+                "phone @ph at=0,0 width=10 blank=9x16\nsheet @s",
+                "line 4: a sheet rises in a phone: give it `in=@phone`",
+            ),
+            (
+                "phone @ph at=0,0 width=10 blank=9x16\nsheet @s in=@ph",
+                "line 4: a sheet with no rows: indent `line`, `box` or `buttons` lines under it",
             ),
             (
                 "fill #fff in=@y",
@@ -1346,6 +1851,77 @@ phone @ph at=266,256 width=548 label="Cardano wallet's browser"
         assert_eq!(
             error("reel 10x10 30\n[a] 2 cut=wipe"),
             "line 2: `cut=wipe`: a cut is hard, dip or flash"
+        );
+    }
+
+    #[test]
+    fn text_styles_taps_and_a_signing_sheet_parse() {
+        let reel = Reel::parse(
+            r##"
+reel 1080x1920 30
+ink gold #f5c542
+font noto app/assets/Noto.ttf
+style cap noto 46 #ffffff em=gold shadow=#000 centre wrap=860
+style stamp noto 60 #8cff5a centre border=8 radius=18 pad=34,20
+style btn noto 32 #101410 centre
+[s] 12
+phone @ph at=266,256 width=548 blank=390x844
+text @c cap at=540,1470 "Open it in *MetaMask's browser*.\nThen sign."
+text @ok stamp at=540,760 rot=-8 "REGISTERED ✓"
+tap @t at=540,856
+sheet @sign in=@ph scrim=0.5
+  line cap "METAMASK"
+  box cap "Register this wallet" fill=#e2e7e0
+  buttons btn "Cancel" "Sign"
+2.5 pulse @t
+"##,
+        )
+        .unwrap();
+        let cap = &reel.styles["cap"];
+        assert_eq!(
+            (cap.size, cap.align, cap.wrap),
+            (46.0, Align::Centre, Some(860.0))
+        );
+        assert_eq!(cap.em, Some(Rgba([0xf5, 0xc5, 0x42, 255])));
+        assert_eq!(reel.styles["stamp"].pad, [34.0, 20.0]);
+        let items = &reel.shots[0].items;
+        assert_eq!(
+            items[1].look,
+            Look::Text {
+                style: "cap".into(),
+                at: [540.0, 1470.0],
+                rot: 0.0,
+                text: "Open it in *MetaMask's browser*.\nThen sign.".into(),
+            }
+        );
+        assert!(matches!(items[2].look, Look::Text { rot: -8.0, .. }));
+        let Look::Sheet { scrim, rows, .. } = &items[4].look else {
+            panic!("{:?}", items[4].look)
+        };
+        assert_eq!(*scrim, 0.5);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[2],
+            Row::Buttons {
+                style: "btn".into(),
+                labels: vec!["Cancel".into(), "Sign".into()],
+            }
+        );
+        assert_eq!(reel.shots[0].actions[0].verb, Verb::Pulse { seconds: 0.55 });
+    }
+
+    #[test]
+    fn stars_mark_emphasis() {
+        let r = runs("Open it in *MetaMask's browser*. Done");
+        assert_eq!(r.len(), 3);
+        assert!(!r[0].em && r[1].em && !r[2].em);
+        assert_eq!(r[1].text, "MetaMask's browser");
+        assert_eq!(
+            runs("*all*"),
+            vec![Run {
+                text: "all".into(),
+                em: true
+            }]
         );
     }
 

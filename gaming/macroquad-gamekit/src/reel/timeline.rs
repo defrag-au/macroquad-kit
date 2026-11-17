@@ -5,7 +5,7 @@
 //! every action due by `t` folded over it, in time order. A still at 18.5 s is the frame the video
 //! has at 18.5 s, and scrubbing backwards is as cheap as forwards.
 
-use super::file::{Action, Cut, Delta, Item, Reel, Rgba, Shot, Verb};
+use super::file::{Action, Cut, Delta, Item, PULSE_FROM, PULSE_TO, Reel, Rgba, Shot, Verb};
 use crate::ease::Ease;
 
 /// How long a cut's colour takes to rise over the end of the shot before it.
@@ -104,7 +104,7 @@ pub fn pose(actions: &[Action], name: &str, t: f32) -> Option<Delta> {
     let mine = || actions.iter().filter(move |a| a.item == name);
     let arrives = mine()
         .find(|a| !matches!(a.verb, Verb::Move { .. }))
-        .is_some_and(|a| matches!(a.verb, Verb::Enter { .. } | Verb::Show));
+        .is_some_and(|a| matches!(a.verb, Verb::Enter { .. } | Verb::Show | Verb::Pulse { .. }));
     let mut showing = !arrives;
     let mut delta = Delta::NONE;
     for action in mine().take_while(|a| a.at <= t) {
@@ -131,6 +131,18 @@ pub fn pose(actions: &[Action], name: &str, t: f32) -> Option<Delta> {
                 ease,
                 yoyo,
             } => delta = delta.then(by.part(there(since, seconds, ease, yoyo))),
+            // The game's business, not a pose: the run hands it to the game.
+            Verb::Set(_) => {}
+            Verb::Pulse { seconds } => {
+                showing = since < seconds;
+                let p = progress(since, seconds);
+                let swell = Ease::QuadOut.apply(p);
+                delta = delta.then(Delta {
+                    scale: PULSE_FROM + (PULSE_TO - PULSE_FROM) * swell,
+                    alpha: 1.0 - p,
+                    ..Delta::NONE
+                });
+            }
         }
     }
     showing.then_some(delta)
@@ -263,6 +275,19 @@ mod tests {
         let falling = pose(a, "p", 4.5).unwrap();
         assert!(falling.frames > 0.0 && falling.rot > 0.0);
         assert_eq!(pose(a, "p", 5.0), None);
+    }
+
+    #[test]
+    fn a_pulse_shows_only_while_it_swells_and_fades() {
+        let r = reel("[a] 4\nfill @t #fff\n1 pulse @t 0.5\n3 pulse @t 0.5");
+        let a = &r.shots[0].actions;
+        assert_eq!(pose(a, "t", 0.5), None);
+        let start = pose(a, "t", 1.0).unwrap();
+        assert!(close(start.scale, PULSE_FROM) && close(start.alpha, 1.0));
+        let mid = pose(a, "t", 1.25).unwrap();
+        assert!(mid.scale > 1.0 && close(mid.alpha, 0.5), "{mid:?}");
+        assert_eq!(pose(a, "t", 2.0), None);
+        assert!(pose(a, "t", 3.1).is_some(), "it pulses again");
     }
 
     #[test]

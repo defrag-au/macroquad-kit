@@ -7,10 +7,14 @@ decodes it again in a browser, or hands it to another tool to compose.
 
 ## Status
 
-Build step 1 is done:
+Build steps 1 and 2 are done:
 - shots, cuts, the game, fills, images, phones;
 - items and actions;
-- `--record` and `--shot`.
+- `--record` and `--shot`;
+- fonts, styles, text, taps and sheets;
+- `set` actions that change the game mid-shot.
+
+The premint infomercial's steps 1–4 (43 s) render in about 15 s.
 
 The first reel is the Perps premint infomercial
 (`cnft.dev-workers/workers/premint-status/app/promo/clone-registry.reel`). It was cut first in
@@ -43,7 +47,7 @@ What this rules out:
 - a browser in the render path;
 - a second copy of the copy text.
 
-A copy change is an edit and a re-render: 14 s of 1080×1920 renders in about 4 s.
+A copy change is an edit and a re-render: 43 s of 1080×1920 renders in about 15 s.
 
 ## Items and actions
 
@@ -85,7 +89,30 @@ phone @ph at=266,256 width=548 label="MetaMask's browser"
   - `skip=S` runs it `S` seconds on, undrawn, so the shot opens part way into a moment;
   - `continue` keeps the state of the previous shot's game instead of resetting it.
 
-  The indented `set` lines are handed to `Game::setup`, as a capture plan's are.
+  The indented `set` lines are handed to `Game::setup`, as a capture plan's are. Name the game
+  (`game @app …`) to change it mid-shot with a `set` action: `8 set @app identity
+  registered.json` does what a tap on its screen would have done.
+
+### Fonts and styles
+
+Fonts and images are declared before the first shot: `font NAME PATH`, `image NAME PATH`. A
+style sets text in one of them:
+
+```text
+style NAME FONT SIZE INK [left|centre|right] [top|middle] [em=INK] [shadow=INK] [wrap=PX]
+                         [gap=PX] [plate=INK] [pad=X,Y] [radius=PX] [border=PX]
+```
+
+- **Alignment.** It says where a text item's `at` is.
+  - Across: the left end, middle or right end of its lines.
+  - Up and down: `top` (the default) is the top of the first line; `middle` is the middle of
+    the text's ink.
+
+  The line box leaves room below for descenders that capitals don't have, so `middle` is what
+  lines up a tag and the label beside it: both `middle`, at one y.
+- **Emphasis.** `*stars*` around words set them in the `em` ink.
+- **Plates and borders.** A plate makes a tag, and a border in the style's ink makes a stamp.
+  Their padding is measured from the ink, so "STEP 4" sits centred in its plate.
 
 ### Items
 
@@ -94,7 +121,15 @@ phone @ph at=266,256 width=548 label="MetaMask's browser"
 | `fill [@n] COLOUR` / `fill radial INNER OUTER` / `fill linear TOP … BOTTOM` | A full-frame colour or gradient |
 | `image [@n] IMAGE [fit=cover\|contain]` | A named image over the frame |
 | `view [@n]` | The game over the whole frame |
-| `phone [@n] at=X,Y width=W [label="…"] [accent=INK] [blank=WxH]` | A phone showing the game, or a blank screen of that shape |
+| `phone [@n] at=X,Y width=W [label="…" chip=STYLE] [accent=INK] [blank=WxH]` | A phone showing the game, or a blank screen of that shape. A label sits on its top edge as a chip |
+| `text [@n] STYLE at=X,Y [rot=DEG] "…"` | Text in a style. `\n` breaks a line |
+| `tap @n at=X,Y [size=PX] [ink=INK]` | A finger's ring. It shows only while a `pulse` plays it |
+| `sheet @n in=@phone [fill=INK] [scrim=0.6]` | A sheet up from the bottom of the phone's screen, cut to it, over a scrim that darkens as it arrives |
+
+A sheet's rows are indented under it:
+- `line STYLE "…"`
+- `box STYLE "…" [fill=INK]`, the message being signed;
+- `buttons STYLE "Cancel" "Sign"`. Each is outlined and the last is filled.
 
 Any item takes `in=@parent`. Its pose is then composed over its parent's (offsets add, scale and
 alpha multiply), and it hides when its parent does.
@@ -107,9 +142,14 @@ alpha multiply), and it hides when its parent does.
 | `T exit @n [PRESET[:SECONDS]]` | Leaves to the preset's pose, and is gone after |
 | `T show @n` / `T hide @n` | At once |
 | `T move @n SECONDS x= y= scale= rot= alpha= [ease=…] [yoyo=N]` | Moves by that much over the time; `yoyo` adds legs there and back |
+| `T pulse @n [SECONDS]` | Shows, swells from 0.4× to 1.5× and fades, then is gone: a tap |
+| `T set @game LINE` | Hands the game a condition line, mid-shot |
 
 - **Visibility.** An item shows from its shot's start, unless its first coming-or-going action is
-  an `enter` or a `show`.
+  an `enter`, a `show` or a `pulse`.
+- **The game's own state.** The game is the one stateful thing in a reel. Frames run forward, so a
+  `set` action is handed over once, on the first frame at or after its time. A still is taken
+  by running the reel up to it, so it sees the same game.
 - **Moves.** Moves add up.
 - **Presets.**
 
@@ -152,12 +192,8 @@ in it, because the game draws in its own points.
 
 ## Next
 
-1. **Text, styles, taps and the signing sheet.** This adds:
-   - `font` and `style` lines;
-   - a `text` item through `RichText`, with `*emphasis*` in the style's `em` ink;
-   - a `tap` item (a ring that swells and fades);
-   - a `sheet` item clipped to its parent phone's screen;
-   - the reel's checks in the report: text off the frame or under the safe margins.
+1. **The reel's own checks in the report.** Text off the frame, or under a platform's safe
+   margins; a glyph the font has not got. The app's Noto subset has no ✓, which drew as nothing.
 2. **Grades.** A shader pass on an image or the game: `mono`, `contrast`, `exposure`,
    `vignette`, `scan`, `tape` and `bleed`, with the noise seeded by the frame. Then the opener's
    juggling phones (`phone … blank=`).

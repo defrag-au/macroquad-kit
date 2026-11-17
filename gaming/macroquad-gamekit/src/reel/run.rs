@@ -7,7 +7,7 @@
 use macroquad::prelude::*;
 
 use super::draw::Painter;
-use super::file::{Continuity, Reel};
+use super::file::{Continuity, Reel, Verb};
 use super::timeline::{scene, time_of};
 use crate::app::{Game, Player};
 use crate::harness::{self, Args, plain_target, target_camera};
@@ -69,6 +69,14 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
     let path = args.reel.as_deref().expect("run is called for --reel");
     let reel = Reel::load(path).unwrap_or_else(|e| fail(e));
     let output = Output::from_args(args).unwrap_or_else(|e| fail(e));
+    if let Output::Stills { at, .. } = &output
+        && let Some(late) = at.iter().find(|&&t| t < 0.0 || t >= reel.seconds())
+    {
+        fail(format!(
+            "--at {late}: the reel runs 0 to {}s",
+            reel.seconds()
+        ));
+    }
     let painter = Painter::load(&reel).unwrap_or_else(|e| fail(e));
     harness::report::enable();
 
@@ -96,6 +104,10 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
 
     player.settle().await;
     let mut showing: Option<usize> = None;
+    // The shot's `set` actions handed to the game so far: the game is the one stateful thing in
+    // a reel, and frames run forward, so each is handed over once, on the first frame at or
+    // after its time.
+    let mut handed = 0;
     for frame in 0..=last {
         let t = time_of(&reel, frame);
         let now = scene(&reel, t);
@@ -104,6 +116,7 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
         // A new shot puts the game in its condition and gives it its viewport.
         if showing != Some(now.shot) {
             showing = Some(now.shot);
+            handed = 0;
             if let Some(game) = &shot.game {
                 if game.from == Continuity::Reset {
                     player.reset();
@@ -117,6 +130,20 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
                 player.skip(game.skip);
             }
         }
+        let due: Vec<_> = shot
+            .actions
+            .iter()
+            .filter_map(|a| match &a.verb {
+                Verb::Set(set) if a.at <= now.local => Some((a.line, set)),
+                _ => None,
+            })
+            .collect();
+        for (line, set) in due.iter().skip(handed) {
+            player
+                .setup(set)
+                .unwrap_or_else(|e| fail(format!("{path}:{line}: {e}")));
+        }
+        handed = due.len();
         let game_frame = shot
             .game
             .as_ref()
