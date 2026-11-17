@@ -15,7 +15,15 @@
 //! [walk-side]
 //! set facing left
 //! shot 90 side.png           # one frame
+//!
+//! [reveal]
+//! record 0-599 30 reveal.mp4 # ten seconds, every other frame, as one video
 //! ```
+//!
+//! `record` encodes its frames through `ffmpeg` (H.264, on the `PATH`, or the binary
+//! `MQ_FFMPEG` names) as they are drawn, at true speed whatever the rate: the clock is
+//! fixed, so a clip comes out the same however long a frame takes. Its rate divides sixty.
+//! No text report is written for a clip's frames.
 //!
 //! Lines before the first `[section]` make an unnamed one. Blank lines and
 //! `#` comments are skipped. A capture writes its PNG and text report as a
@@ -44,9 +52,51 @@ pub struct Section {
     /// `set` lines, in order, with their line numbers for errors.
     pub sets: Vec<(usize, String)>,
     pub keys: Vec<KeyScript>,
-    /// Captures by frame (from the section's start): where each is written.
-    pub shots: BTreeMap<u32, String>,
+    /// Captures by frame (from the section's start): what each one is taken for.
+    pub shots: BTreeMap<u32, Take>,
+    /// The section's `record` lines, which its [`Take::Clip`]s name by index.
+    pub clips: Vec<Clip>,
 }
+
+/// What a frame is captured for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Take {
+    /// A still: the PNG at this path, and its text report beside it.
+    Still(String),
+    /// A frame of the section's clip at this index ([`Section::clips`]).
+    Clip(usize),
+}
+
+/// A `record FROM-TO FPS file.mp4` line: frames `from` to `to` of the section, every
+/// `60 / fps`-th, encoded as one video. The fixed clock runs at sixty a second, so the clip
+/// plays at true speed and every frame is drawn in full however long encoding takes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Clip {
+    pub path: String,
+    pub fps: u32,
+    pub from: u32,
+    pub to: u32,
+}
+
+impl Clip {
+    /// Clock frames between two of the clip's: 2 for 30 fps.
+    pub fn every(&self) -> u32 {
+        CLOCK_FPS / self.fps
+    }
+
+    /// The section frames the clip takes, in order.
+    pub fn frames(&self) -> impl Iterator<Item = u32> + '_ {
+        (self.from..=self.to).step_by(self.every() as usize)
+    }
+
+    /// Its last frame: where the clip is finished and its file closed.
+    pub fn last(&self) -> u32 {
+        self.frames().last().unwrap_or(self.from)
+    }
+}
+
+/// The fixed clock's rate: a plan's frames are counted at this many a second.
+pub const CLOCK_FPS: u32 = 60;
 
 impl Plan {
     /// Read and parse the plan at `path`.
@@ -80,12 +130,20 @@ impl Plan {
             let section = plan.sections.last_mut().expect("a section");
             let (word, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
             let rest = rest.trim();
-            let shot = |section: &mut Section, frame: u32, path: String| match section
+            let shot = |section: &mut Section, frame: u32, take: Take| match section
                 .shots
-                .insert(frame, path)
+                .insert(frame, take)
             {
                 Some(_) => Err(format!("line {n}: two captures at frame {frame}")),
                 None => Ok(()),
+            };
+            // `FROM-TO`, in order.
+            let range = |range: &str| {
+                range
+                    .split_once('-')
+                    .and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)))
+                    .filter(|(a, b)| a <= b)
+                    .ok_or_else(|| format!("line {n}: `{range}`: expected FROM-TO, in order"))
             };
             match word {
                 "set" if !rest.is_empty() => section.sets.push((n, rest.to_string())),
@@ -99,32 +157,59 @@ impl Plan {
                     let frame: u32 = frame
                         .parse()
                         .map_err(|_| format!("line {n}: `{frame}` is not a frame number"))?;
-                    shot(section, frame, path.to_string())?;
+                    shot(section, frame, Take::Still(path.to_string()))?;
                 }
                 "frames" => {
-                    let (range, path) = frame_and_path(rest).ok_or_else(|| {
+                    let (span, path) = frame_and_path(rest).ok_or_else(|| {
                         format!("line {n}: `{line}`: expected `frames FROM-TO file.png`")
                     })?;
-                    let (from, to) = range
-                        .split_once('-')
-                        .and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)))
-                        .filter(|(a, b)| a <= b)
-                        .ok_or_else(|| {
-                            format!("line {n}: `{range}`: expected FROM-TO, in order")
-                        })?;
+                    let (from, to) = range(span)?;
                     for frame in from..=to {
-                        shot(section, frame, numbered(path, frame))?;
+                        shot(section, frame, Take::Still(numbered(path, frame)))?;
                     }
+                }
+                "record" => {
+                    let expected =
+                        || format!("line {n}: `{line}`: expected `record FROM-TO FPS file.mp4`");
+                    let mut words = rest.split_whitespace();
+                    let (Some(span), Some(fps), Some(path), None) =
+                        (words.next(), words.next(), words.next(), words.next())
+                    else {
+                        return Err(expected());
+                    };
+                    let (from, to) = range(span)?;
+                    let fps: u32 = fps
+                        .parse()
+                        .ok()
+                        .filter(|fps| *fps > 0 && CLOCK_FPS.is_multiple_of(*fps))
+                        .ok_or_else(|| {
+                            format!(
+                                "line {n}: `{fps}`: a clip's rate divides the clock's \
+                                 {CLOCK_FPS} (60, 30, 20, 15, 12, 10…)"
+                            )
+                        })?;
+                    let clip = Clip {
+                        path: path.to_string(),
+                        fps,
+                        from,
+                        to,
+                    };
+                    let index = section.clips.len();
+                    for frame in clip.frames() {
+                        shot(section, frame, Take::Clip(index))?;
+                    }
+                    section.clips.push(clip);
                 }
                 _ => {
                     return Err(format!(
-                        "line {n}: `{line}`: expected `[section]`, `set …`, `keys …`, `shot …` or `frames …`"
+                        "line {n}: `{line}`: expected `[section]`, `set …`, `keys …`, `shot …`, \
+                         `frames …` or `record …`"
                     ));
                 }
             }
         }
         if plan.sections.iter().all(|s| s.shots.is_empty()) {
-            return Err("nothing to capture: no `shot` or `frames` line".to_string());
+            return Err("nothing to capture: no `shot`, `frames` or `record` line".to_string());
         }
         Ok(plan)
     }
@@ -215,17 +300,17 @@ impl PlanRun {
         }
     }
 
-    /// Where this frame's capture goes, if it has one.
-    pub fn due(&self) -> Option<&str> {
+    /// What this frame is captured for, if anything.
+    pub fn due(&self) -> Option<&Take> {
         if !self.started {
             return None;
         }
-        self.plan
-            .sections
-            .get(self.section)?
-            .shots
-            .get(&self.frame)
-            .map(String::as_str)
+        self.plan.sections.get(self.section)?.shots.get(&self.frame)
+    }
+
+    /// The current section's clip at `index`.
+    pub fn clip(&self, index: usize) -> Option<&Clip> {
+        self.plan.sections.get(self.section)?.clips.get(index)
     }
 
     /// Frames until the section's next capture (0 if this one has one).
@@ -312,14 +397,68 @@ mod tests {
         assert_eq!(walk.sets[0].1, "leader DaKing");
         assert_eq!(walk.sets[1].1, "facing front");
         assert_eq!(walk.keys.len(), 1);
-        let shots: Vec<(&u32, &String)> = walk.shots.iter().collect();
+        let shots: Vec<(&u32, &Take)> = walk.shots.iter().collect();
         assert_eq!(shots.len(), 3);
-        assert_eq!(shots[0], (&2, &"walk-002.png".to_string()));
+        assert_eq!(shots[0], (&2, &Take::Still("walk-002.png".to_string())));
         assert_eq!(
-            plan.sections[1].shots.get(&1).map(String::as_str),
-            Some(".tmp/side.png")
+            plan.sections[1].shots.get(&1),
+            Some(&Take::Still(".tmp/side.png".to_string()))
         );
         assert_eq!(plan.captures(), 4);
+    }
+
+    /// A clip takes every `60 / fps`-th frame of its span, each one a frame of the same clip,
+    /// and finishes on the last of them.
+    #[test]
+    fn a_record_line_takes_its_frames_at_its_rate() {
+        let plan = Plan::parse("[reveal]\nrecord 10-20 30 out/reveal.mp4\nshot 21 after.png")
+            .expect("parses");
+        let reveal = &plan.sections[0];
+        assert_eq!(
+            reveal.clips,
+            vec![Clip {
+                path: "out/reveal.mp4".into(),
+                fps: 30,
+                from: 10,
+                to: 20,
+            }]
+        );
+        let clip = &reveal.clips[0];
+        assert_eq!(clip.every(), 2);
+        assert_eq!(
+            clip.frames().collect::<Vec<_>>(),
+            vec![10, 12, 14, 16, 18, 20]
+        );
+        assert_eq!(clip.last(), 20);
+        assert_eq!(reveal.shots.get(&12), Some(&Take::Clip(0)));
+        assert_eq!(
+            reveal.shots.get(&11),
+            None,
+            "between a 30 fps clip's frames"
+        );
+        assert_eq!(
+            reveal.shots.get(&21),
+            Some(&Take::Still("after.png".into()))
+        );
+        // Every frame of the clip is a capture the run walks to.
+        assert_eq!(plan.captures(), 7);
+        // An odd span ends on the last frame the rate reaches.
+        let odd = Plan::parse("record 0-9 20 a.mp4").expect("parses");
+        assert_eq!(odd.sections[0].clips[0].last(), 9);
+        let short = Plan::parse("record 0-10 20 a.mp4").expect("parses");
+        assert_eq!(short.sections[0].clips[0].last(), 9);
+    }
+
+    #[test]
+    fn a_bad_record_line_is_refused_by_number() {
+        let err = |text: &str| Plan::parse(text).unwrap_err();
+        assert!(err("shot 1 a.png\nrecord 0-10 a.mp4").contains("line 2"));
+        assert!(err("record 0-10 25 a.mp4").contains("divides"));
+        assert!(err("record 0-10 0 a.mp4").contains("divides"));
+        assert!(err("record 10-0 30 a.mp4").contains("in order"));
+        assert!(err("record 0-10 30 a.mp4 extra").contains("expected `record"));
+        // A clip and a still cannot share a frame.
+        assert!(err("record 0-10 30 a.mp4\nshot 4 b.png").contains("two captures"));
     }
 
     #[test]
@@ -356,7 +495,7 @@ mod tests {
         assert_eq!(run.until_next(), Some(2));
         let mut seen = Vec::new();
         loop {
-            if let Some(path) = run.due() {
+            if let Some(Take::Still(path)) = run.due() {
                 seen.push((
                     run.section_name().to_string(),
                     run.frame(),
@@ -395,6 +534,6 @@ mod tests {
         assert_eq!(run.until_next(), None);
         assert_eq!(run.advance(), Next::Continue);
         assert_eq!(run.section_name(), "real");
-        assert_eq!(run.due(), Some("a.png"));
+        assert_eq!(run.due(), Some(&Take::Still("a.png".into())));
     }
 }

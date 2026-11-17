@@ -342,6 +342,11 @@ pub struct Args {
     /// `--plan plan.txt`: many conditions and captures in one launch; see
     /// [`plan`](crate::plan).
     pub plan: Option<String>,
+    /// `--reel promo.reel`: render the game's promo video from a `.reel` file; see
+    /// [`reel`](crate::reel).
+    pub reel: Option<String>,
+    /// `--record out.mp4` with `--reel`: encode the whole reel to this file.
+    pub record: Option<String>,
     /// `--px 3`: device pixels per design unit for a capture, whatever the
     /// window's. A headless or 1× display captures at 1, where a 36-pixel
     /// sprite is a smudge; text is rasterised at this scale too, so it stays
@@ -554,6 +559,8 @@ impl Args {
                 })
                 .unwrap_or_default(),
             plan: flag_in(argv, "--plan"),
+            reel: flag_in(argv, "--reel"),
+            record: flag_in(argv, "--record"),
             px: flag_in(argv, "--px")
                 .and_then(|v| v.parse::<f32>().ok())
                 .filter(|p| *p > 0.0 && *p <= 8.0),
@@ -628,7 +635,11 @@ impl Args {
 
     /// Whether this run captures, so runs on the fixed clock and records text.
     pub fn capturing(&self) -> bool {
-        self.shot.is_some() || self.sheet.is_some() || self.sprites.is_some() || self.plan.is_some()
+        self.shot.is_some()
+            || self.sheet.is_some()
+            || self.sprites.is_some()
+            || self.plan.is_some()
+            || self.reel.is_some()
     }
 
     /// The window size: `--size`, else `default`.
