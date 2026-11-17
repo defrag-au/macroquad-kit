@@ -1,0 +1,37 @@
+name: Security
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  # An advisory names a version already in the lockfile, so a diff-triggered
+  # run only checks the day the lockfile moved. The scheduled run is what
+  # notices a crate going bad while this repository sits still.
+  schedule:
+    - cron: "29 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `advisories` fails the job. `sources` fails if a dependency starts
+      # resolving from somewhere `deny.toml` does not list; `bans` is strict on
+      # workspace-dependency consistency and advisory elsewhere.
+      #
+      # This action ships cargo-deny 0.21.0, ahead of the devshell's 0.20.2, so
+      # every lint default this repo depends on is written down in `deny.toml`
+      # rather than left implicit. `--all-features` is the action's default too,
+      # stated here so the audited graph is not inherited by accident.
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans sources
+          arguments: --all-features
