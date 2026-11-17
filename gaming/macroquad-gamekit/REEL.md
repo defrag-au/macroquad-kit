@@ -7,14 +7,16 @@ decodes it again in a browser, or hands it to another tool to compose.
 
 ## Status
 
-Build steps 1 and 2 are done:
+Build steps 1 to 3 are done:
 - shots, cuts, the game, fills, images, phones;
 - items and actions;
 - `--record` and `--shot`;
 - fonts, styles, text, taps and sheets;
-- `set` actions that change the game mid-shot.
+- `set` actions that change the game mid-shot;
+- grades;
+- parents that carry their children.
 
-The premint infomercial's steps 1–4 (43 s) render in about 15 s.
+The premint infomercial's opener and steps 1–4 (60 s) render in about 21 s.
 
 The first reel is the Perps premint infomercial
 (`cnft.dev-workers/workers/premint-status/app/promo/clone-registry.reel`). It was cut first in
@@ -47,7 +49,7 @@ What this rules out:
 - a browser in the render path;
 - a second copy of the copy text.
 
-A copy change is an edit and a re-render: 43 s of 1080×1920 renders in about 15 s.
+A copy change is an edit and a re-render: 60 s of 1080×1920 renders in about 21 s.
 
 ## Items and actions
 
@@ -79,7 +81,9 @@ phone @ph at=266,256 width=548 label="MetaMask's browser"
 
 ### Shots
 
-- `[name] SECONDS [cut=…]` starts a shot. Shots play in order, back to back.
+- `[name] SECONDS [cut=…] [grade=NAME]` starts a shot. Shots play in order, back to back.
+- `grade=` lays a named grade over the whole shot once it is drawn: one shader pass, so its items
+  and the game's screen take the same look.
 - `cut=dip:0.35[:ink]` goes through a colour (black by default) and `cut=flash:0.35` through
   white. Either way the colour rises over the last 0.1 s of the shot before and falls away, eased,
   into this one.
@@ -93,10 +97,34 @@ phone @ph at=266,256 width=548 label="MetaMask's browser"
   (`game @app …`) to change it mid-shot with a `set` action: `8 set @app identity
   registered.json` does what a tap on its screen would have done.
 
-### Fonts and styles
+### Grades
 
-Fonts and images are declared before the first shot: `font NAME PATH`, `image NAME PATH`. A
-style sets text in one of them:
+```text
+grade vhs mono=1 contrast=0.25 exposure=-0.15 vignette=0.35 scan=0.3 tape=0.55 bleed=0.4
+```
+
+The look of a dubbed infomercial off a worn tape. Each control is 0 when not given, which leaves
+the frame alone.
+
+| Control | Effect |
+|---|---|
+| `mono` | Black and white |
+| `contrast` | Stretched about mid-grey |
+| `exposure` | In stops |
+| `vignette` | Darkened corners |
+| `scan` | Scanlines four pixels apart |
+| `tape` | Lines jitter sideways, grain crawls, and a tracking band rolls down every six seconds, tearing the picture |
+| `bleed` | Red and blue pulled apart sideways |
+
+The noise is a hash of the pixel and the frame's number, so a frame comes out the same every run.
+
+### Fonts, images and styles
+
+Fonts and images are declared before the first shot: `font NAME PATH`, `image NAME PATH`.
+Images may be PNG or JPEG. macroquad's own decoder reads PNG only, so the kit turns on JPEG
+for the same `image` crate, natively.
+
+A style sets text in one of them:
 
 ```text
 style NAME FONT SIZE INK [left|centre|right] [top|middle] [em=INK] [shadow=INK] [wrap=PX]
@@ -131,8 +159,12 @@ A sheet's rows are indented under it:
 - `box STYLE "…" [fill=INK]`, the message being signed;
 - `buttons STYLE "Cancel" "Sign"`. Each is outlined and the last is filled.
 
-Any item takes `in=@parent`. Its pose is then composed over its parent's (offsets add, scale and
-alpha multiply), and it hides when its parent does.
+Any item takes two placement options:
+
+- **`rot=DEG`**: it is turned as placed, about its centre.
+- **`in=@parent`**: it is placed in the frame like any item. It is then carried by its parent:
+  moved, turned and scaled about the parent's centre, faded with it, and hidden when the parent
+  is. Text placed on a phone that is being juggled turns with the phone.
 
 ### Actions
 
@@ -176,6 +208,12 @@ game --reel promo/clone-registry.reel --shot .tmp/r.png --at 2,12,18.5   # r-2.p
 Every still comes with the kit's text report, in the reel's pixels. The game's own text is muted
 in it, because the game draws in its own points.
 
+A reel renders offline, so its text and the game's are drawn with the glyph gate open. Every
+glyph is cached as it is first drawn, and no caption is held back a frame.
+
+Gated text depends on the game's frame to flush the cache. A shot with no game would otherwise
+never show its text at all; the opener found that.
+
 ## What is pure and what draws
 
 - **`reel::file`** parses and checks a reel. It is pure. Every mistake names its line:
@@ -192,12 +230,11 @@ in it, because the game draws in its own points.
 
 ## Next
 
-1. **The reel's own checks in the report.** Text off the frame, or under a platform's safe
-   margins; a glyph the font has not got. The app's Noto subset has no ✓, which drew as nothing.
-2. **Grades.** A shader pass on an image or the game: `mono`, `contrast`, `exposure`,
-   `vignette`, `scan`, `tape` and `bleed`, with the noise seeded by the frame. Then the opener's
-   juggling phones (`phone … blank=`).
-3. **A browser device for the desktop shot.** Then the rest of the storyboard, after which the
-   HyperFrames project is removed.
-4. **A window preview** with scrubbing, a storybook story, and the CATALOG.
-5. **Sound later.** An `audio FILE` line, muxed in the same encode.
+1. **A browser device for the desktop shot,** and a clipped scroll for the fine print. Then the
+   rest of the storyboard, after which the HyperFrames project is removed.
+2. **The reel's own checks in the report:**
+   - text off the frame, or under a platform's safe margins;
+   - a glyph the font has not got. The app's Noto subset has no ✓ or ™, and both drew as
+     nothing.
+3. **A window preview** with scrubbing, a storybook story, and the CATALOG.
+4. **Sound later.** An `audio FILE` line, muxed in the same encode.

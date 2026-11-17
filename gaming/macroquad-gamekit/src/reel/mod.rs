@@ -17,6 +17,7 @@
 
 pub mod draw;
 pub mod file;
+pub mod grade;
 pub(crate) mod run;
 pub mod timeline;
 

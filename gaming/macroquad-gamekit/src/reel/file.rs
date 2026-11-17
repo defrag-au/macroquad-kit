@@ -164,6 +164,44 @@ pub struct Shot {
     pub items: Vec<Item>,
     /// In time order; actions at the same moment keep their file order.
     pub actions: Vec<Action>,
+    /// A look over the whole shot, once it is drawn (`grade=vhs`): the shot's frame goes through
+    /// it as one pass, its items and the game's screen together.
+    pub grade: Option<Grade>,
+}
+
+/// A look laid over a finished frame (`grade vhs mono=1 contrast=0.25 tape=0.55 …`): every
+/// control 0 when not given, which leaves the frame as it was.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Grade {
+    /// 0 is the frame's colour, 1 its luminance alone.
+    pub mono: f32,
+    /// Stretch about mid-grey: 0.25 is a quarter more.
+    pub contrast: f32,
+    /// Stops: -0.15 is a little darker.
+    pub exposure: f32,
+    /// How dark the corners go.
+    pub vignette: f32,
+    /// How dark the gaps between scanlines are.
+    pub scan: f32,
+    /// A worn tape: lines jitter sideways, grain crawls, a tracking band rolls down.
+    pub tape: f32,
+    /// Red and blue pulled apart sideways, as a VHS smears its colour.
+    pub bleed: f32,
+}
+
+impl Grade {
+    /// Its controls by name, as a `grade` line writes them.
+    fn slots(&mut self) -> [(&'static str, &mut f32); 7] {
+        [
+            ("mono", &mut self.mono),
+            ("contrast", &mut self.contrast),
+            ("exposure", &mut self.exposure),
+            ("vignette", &mut self.vignette),
+            ("scan", &mut self.scan),
+            ("tape", &mut self.tape),
+            ("bleed", &mut self.bleed),
+        ]
+    }
 }
 
 /// How a reel changes into a shot.
@@ -213,8 +251,11 @@ pub struct Item {
     pub line: usize,
     /// `@name`, without the `@`.
     pub name: Option<String>,
-    /// The item it moves with (`in=@ph`): its pose is composed over the parent's.
+    /// The item it moves with (`in=@ph`): it is placed in the frame as any item is, then moved,
+    /// turned and scaled along with its parent, about the parent's centre.
     pub parent: Option<String>,
+    /// Degrees it is turned as placed (`rot=-8`), about its centre.
+    pub rot: f32,
     pub look: Look,
 }
 
@@ -237,11 +278,10 @@ pub enum Look {
         accent: Option<Rgba>,
         screen: Screen,
     },
-    /// Text in a style, at `at` (see [`Align`]), turned `rot` degrees.
+    /// Text in a style, at `at` (see [`Align`] and [`Anchor`]).
     Text {
         style: String,
         at: [f32; 2],
-        rot: f32,
         text: String,
     },
     /// A finger's touch: a ring `size` across, centred on `at`. It shows only while a `pulse`
@@ -710,6 +750,7 @@ struct Parser {
     images: BTreeMap<String, String>,
     fonts: BTreeMap<String, String>,
     styles: BTreeMap<String, Style>,
+    grades: BTreeMap<String, Grade>,
     shots: Vec<Shot>,
     /// What an indented line belongs to.
     under: Under,
@@ -773,6 +814,32 @@ impl Parser {
                 format!("no style called `{name}`; name it with a `style {name} …` line first"),
             ))
         }
+    }
+
+    /// `grade NAME [mono=…] [contrast=…] [exposure=…] [vignette=…] [scan=…] [tape=…] [bleed=…]`.
+    fn grade(&mut self, line: usize, mut words: Words) -> Result<(), ReelError> {
+        let [name] = &words.texts()[..] else {
+            return Err(err(
+                line,
+                "write `grade NAME mono= contrast= exposure= vignette= scan= tape= bleed=`",
+            ));
+        };
+        let name = name.clone();
+        let mut grade = Grade::default();
+        let keys: Vec<&str> = grade.slots().iter().map(|(k, _)| *k).collect();
+        for (key, slot) in grade.slots() {
+            if let Some(v) = words.take(key) {
+                *slot = number(line, key, &v)?;
+            }
+        }
+        words.done("grade", &keys)?;
+        if grade == Grade::default() {
+            return Err(err(line, format!("grade `{name}` changes nothing")));
+        }
+        if self.grades.insert(name.clone(), grade).is_some() {
+            return Err(err(line, format!("a second grade called `{name}`")));
+        }
+        Ok(())
     }
 
     /// `style NAME FONT SIZE INK [options]`.
@@ -937,6 +1004,7 @@ impl Parser {
                 words.done(keyword, &[])
             }
             "style" => self.style(line, words),
+            "grade" => self.grade(line, words),
             "game" => self.game(line, words),
             "fill" | "image" | "view" | "phone" | "text" | "tap" | "sheet" => {
                 self.item(line, keyword, words)
@@ -968,7 +1036,18 @@ impl Parser {
             None => Cut::Hard,
             Some(spec) => self.cut(line, &spec)?,
         };
-        words.done("shot", &["cut"])?;
+        let grade = words
+            .take("grade")
+            .map(|g| {
+                self.grades.get(&g).copied().ok_or_else(|| {
+                    err(
+                        line,
+                        format!("no grade called `{g}`; name it with a `grade {g} …` line first"),
+                    )
+                })
+            })
+            .transpose()?;
+        words.done("shot", &["cut", "grade"])?;
         self.shots.push(Shot {
             line,
             name: name.to_string(),
@@ -977,6 +1056,7 @@ impl Parser {
             game: None,
             items: Vec::new(),
             actions: Vec::new(),
+            grade,
         });
         Ok(())
     }
@@ -1061,7 +1141,7 @@ impl Parser {
         Ok(())
     }
 
-    /// `text [@name] STYLE at=X,Y [rot=DEG] "…"`.
+    /// `text [@name] STYLE at=X,Y "…"`.
     fn text(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
         let usage = "write `text [@name] STYLE at=X,Y \"…\"`";
         let (Some(style), Some(body)) = (
@@ -1081,18 +1161,8 @@ impl Parser {
                 .take("at")
                 .ok_or_else(|| err(line, "text needs `at=X,Y`"))?,
         )?;
-        let rot = words
-            .take("rot")
-            .map(|r| number(line, "rot", &r))
-            .transpose()?
-            .unwrap_or(0.0);
-        words.done("text", &["at", "rot", "in"])?;
-        Ok(Look::Text {
-            style,
-            at,
-            rot,
-            text,
-        })
+        words.done("text", &["at", "in", "rot"])?;
+        Ok(Look::Text { style, at, text })
     }
 
     /// `tap [@name] at=X,Y [size=120] [ink=#fff]`.
@@ -1116,7 +1186,7 @@ impl Parser {
             .map(|c| self.colour(line, &c))
             .transpose()?
             .unwrap_or(Rgba::WHITE);
-        words.done("tap", &["at", "size", "ink", "in"])?;
+        words.done("tap", &["at", "size", "ink", "in", "rot"])?;
         Ok(Look::Tap { at, size, ink })
     }
 
@@ -1139,7 +1209,7 @@ impl Parser {
             .transpose()?
             .unwrap_or(0.6)
             .clamp(0.0, 1.0);
-        words.done("sheet", &["fill", "scrim", "in"])?;
+        words.done("sheet", &["fill", "scrim", "in", "rot"])?;
         Ok(Look::Sheet {
             fill,
             scrim,
@@ -1210,10 +1280,15 @@ impl Parser {
                     .ok_or_else(|| err(line, format!("`in={p}`: name an item, as `in=@phone`")))
             })
             .transpose()?;
+        let rot = words
+            .take("rot")
+            .map(|r| number(line, "rot", &r))
+            .transpose()?
+            .unwrap_or(0.0);
         let positional = words.texts();
         let look = match keyword {
             "fill" => {
-                words.done("fill", &["in"])?;
+                words.done("fill", &["in", "rot"])?;
                 Look::Fill(self.fill(line, &positional)?)
             }
             "view" => {
@@ -1223,7 +1298,7 @@ impl Parser {
                         "write `view [@name]`: the game, over the whole frame",
                     ));
                 }
-                words.done("view", &["in"])?;
+                words.done("view", &["in", "rot"])?;
                 Look::View
             }
             "image" => {
@@ -1245,7 +1320,7 @@ impl Parser {
                         return Err(err(line, format!("`fit={other}`: cover or contain")));
                     }
                 };
-                words.done("image", &["fit", "in"])?;
+                words.done("image", &["fit", "in", "rot"])?;
                 Look::Image {
                     image: image.clone(),
                     fit,
@@ -1263,6 +1338,7 @@ impl Parser {
             line,
             name,
             parent,
+            rot,
             look,
         });
         Ok(())
@@ -1314,7 +1390,9 @@ impl Parser {
         }
         words.done(
             "phone",
-            &["at", "width", "label", "chip", "accent", "blank", "in"],
+            &[
+                "at", "width", "label", "chip", "accent", "blank", "in", "rot",
+            ],
         )?;
         Ok(Look::Phone {
             at,
@@ -1890,11 +1968,10 @@ sheet @sign in=@ph scrim=0.5
             Look::Text {
                 style: "cap".into(),
                 at: [540.0, 1470.0],
-                rot: 0.0,
                 text: "Open it in *MetaMask's browser*.\nThen sign.".into(),
             }
         );
-        assert!(matches!(items[2].look, Look::Text { rot: -8.0, .. }));
+        assert_eq!(items[2].rot, -8.0);
         let Look::Sheet { scrim, rows, .. } = &items[4].look else {
             panic!("{:?}", items[4].look)
         };
@@ -1908,6 +1985,29 @@ sheet @sign in=@ph scrim=0.5
             }
         );
         assert_eq!(reel.shots[0].actions[0].verb, Verb::Pulse { seconds: 0.55 });
+    }
+
+    #[test]
+    fn a_grade_is_named_then_laid_over_a_shot() {
+        let reel = Reel::parse(
+            "reel 10x10 30\ngrade vhs mono=1 contrast=0.25 tape=0.55\n[a] 1 grade=vhs\n[b] 1",
+        )
+        .unwrap();
+        let g = reel.shots[0].grade.unwrap();
+        assert_eq!((g.mono, g.contrast, g.tape, g.scan), (1.0, 0.25, 0.55, 0.0));
+        assert_eq!(reel.shots[1].grade, None);
+        assert_eq!(
+            error("reel 10x10 30\n[a] 1 grade=film"),
+            "line 2: no grade called `film`; name it with a `grade film …` line first"
+        );
+        assert_eq!(
+            error("reel 10x10 30\ngrade flat\n[a] 1"),
+            "line 2: grade `flat` changes nothing"
+        );
+        assert_eq!(
+            error("reel 10x10 30\ngrade g sepia=1\n[a] 1"),
+            "line 2: `grade` takes no `sepia=`; it takes mono, contrast, exposure, vignette, scan, tape, bleed"
+        );
     }
 
     #[test]

@@ -7,6 +7,10 @@
 
 use std::collections::BTreeMap;
 
+// Only for its `jpeg` feature, which macroquad's decoder then has: see the crate's manifest.
+#[cfg(not(target_arch = "wasm32"))]
+use image as _;
+
 use macroquad::models::{Mesh, Vertex, draw_mesh};
 use macroquad::prelude::*;
 
@@ -76,6 +80,43 @@ pub fn model(pose: Delta, bounds: Rect, frame_h: f32, rot: f32) -> Mat4 {
         * Mat4::from_rotation_z((pose.rot + rot).to_radians())
         * Mat4::from_scale(vec3(pose.scale, pose.scale, 1.0))
         * Mat4::from_translation((-anchor).extend(0.0))
+}
+
+/// Draw under `m` as well as whatever is pushed already, until [`pop`]. macroquad composes a
+/// pushed matrix with the one below it.
+fn push(m: Mat4) {
+    unsafe { get_internal_gl() }.quad_gl.push_model_matrix(m);
+}
+
+fn pop() {
+    unsafe { get_internal_gl() }.quad_gl.pop_model_matrix();
+}
+
+/// The box in the frame around `rect`'s corners carried by `m`: a scissor for something drawn
+/// under `m`, which can only be a rectangle.
+pub fn carried_box(m: Mat4, rect: Rect) -> Rect {
+    let corners = [
+        rect.point(),
+        vec2(rect.right(), rect.y),
+        vec2(rect.x, rect.bottom()),
+        vec2(rect.right(), rect.bottom()),
+    ]
+    .map(|p| m.transform_point3(p.extend(0.0)).truncate());
+    let min = corners.iter().fold(corners[0], |a, &p| a.min(p));
+    let max = corners.iter().fold(corners[0], |a, &p| a.max(p));
+    Rect::new(min.x, min.y, max.x - min.x, max.y - min.y)
+}
+
+/// A phone's screen and its corner radius, if `item` is a phone.
+fn screen_of(item: &Item, game: Option<(u32, u32)>) -> Option<(Rect, f32)> {
+    let Look::Phone {
+        at, width, screen, ..
+    } = &item.look
+    else {
+        return None;
+    };
+    let p = phone_layout(*at, *width, shape(*screen, game));
+    Some((p.screen, p.screen_radius))
 }
 
 fn color(c: Rgba, alpha: f32) -> Color {
@@ -236,35 +277,73 @@ impl Painter {
         }
     }
 
-    fn layer(&self, scene: &Scene, layer: &Layer, frame: Rect, game: Option<&Texture2D>) {
-        let alpha = layer.pose.alpha.clamp(0.0, 1.0);
-        let pose = layer.pose;
-        let push = |bounds: Rect, rot: f32| {
-            unsafe { get_internal_gl() }
-                .quad_gl
-                .push_model_matrix(model(pose, bounds, frame.h, rot));
-        };
-        let pop = || unsafe { get_internal_gl() }.quad_gl.pop_model_matrix();
-        match &layer.item.look {
-            Look::Fill(fill) => {
-                push(frame, 0.0);
-                draw_fill(fill, frame, alpha);
-                pop();
+    /// The rectangle `item` occupies as placed: its centre is what it turns and scales about,
+    /// and its height the unit a `slide` moves in. `parent` is the item it is in, if any: a
+    /// sheet sits at the bottom of its phone's screen.
+    fn bounds(
+        &self,
+        item: &Item,
+        parent: Option<&Item>,
+        frame: Rect,
+        game: Option<(u32, u32)>,
+    ) -> Rect {
+        match &item.look {
+            Look::Fill(_) | Look::Image { .. } | Look::View => frame,
+            Look::Phone {
+                at, width, screen, ..
+            } => phone_layout(*at, *width, shape(*screen, game)).outer,
+            Look::Text { style, at, text } => {
+                let st = &self.styles[style];
+                let set = self.set(style, text, None, None);
+                place_block(st, &set, vec2(at[0], at[1]), st.align, st.anchor).1
             }
+            Look::Tap { at, size, .. } => {
+                Rect::new(at[0] - size / 2.0, at[1] - size / 2.0, *size, *size)
+            }
+            Look::Sheet { rows, .. } => match parent.and_then(|p| screen_of(p, game)) {
+                Some((screen, _)) => {
+                    let h = self.sheet_layout(rows, screen.w).height;
+                    Rect::new(screen.x, screen.bottom() - h, screen.w, h)
+                }
+                None => frame,
+            },
+        }
+    }
+
+    /// What carries `layer` from where it was placed to where it is now: its parents' poses,
+    /// each about its own centre, outermost first; and its own.
+    fn matrices(&self, layer: &Layer, frame: Rect, game: Option<(u32, u32)>) -> (Mat4, Mat4) {
+        let mut parents = Mat4::IDENTITY;
+        let mut above = None;
+        for (item, pose) in &layer.parents {
+            let b = self.bounds(item, above, frame, game);
+            parents *= model(*pose, b, frame.h, item.rot);
+            above = Some(*item);
+        }
+        let b = self.bounds(layer.item, above, frame, game);
+        (parents, model(layer.pose, b, frame.h, layer.item.rot))
+    }
+
+    fn layer(&self, scene: &Scene, layer: &Layer, frame: Rect, game: Option<&Texture2D>) {
+        let alpha = layer.alpha;
+        if let Look::Sheet { fill, scrim, rows } = &layer.item.look {
+            self.sheet(scene, layer, frame, *fill, *scrim, rows);
+            return;
+        }
+        let (parents, own) = self.matrices(layer, frame, scene.game);
+        push(parents * own);
+        match &layer.item.look {
+            Look::Fill(fill) => draw_fill(fill, frame, alpha),
             Look::Image { image, fit } => {
                 if let Some(texture) = self.images.get(image) {
-                    push(frame, 0.0);
                     self.image(texture, frame, *fit, alpha);
-                    pop();
                 }
             }
             Look::View => {
                 if let Some(texture) = game {
-                    push(frame, 0.0);
                     let tint = Color::new(1.0, 1.0, 1.0, alpha);
                     self.art
                         .draw_target(texture, frame, 0.0, tint, Finish::NONE);
-                    pop();
                 }
             }
             Look::Phone {
@@ -275,7 +354,6 @@ impl Painter {
                 label,
             } => {
                 let p = phone_layout(*at, *width, shape(*screen, scene.game));
-                push(p.outer, 0.0);
                 let shown = match screen {
                     Screen::Game => game,
                     Screen::Blank { .. } => None,
@@ -289,39 +367,21 @@ impl Painter {
                     let placed = place_block(st, &set, at, Align::Centre, Anchor::Middle);
                     self.block(st, &set, placed, alpha);
                 }
-                pop();
             }
-            Look::Text {
-                style,
-                at,
-                rot,
-                text,
-            } => {
+            Look::Text { style, at, text } => {
                 let st = &self.styles[style];
                 let set = self.set(style, text, None, None);
                 let placed = place_block(st, &set, vec2(at[0], at[1]), st.align, st.anchor);
-                push(placed.1, *rot);
                 self.block(st, &set, placed, alpha);
-                pop();
             }
             Look::Tap { at, size, ink } => {
-                let centre = vec2(at[0], at[1]);
                 let r = size / 2.0;
-                push(Rect::new(centre.x - r, centre.y - r, *size, *size), 0.0);
-                draw_circle(centre.x, centre.y, r, color(*ink, 0.25 * alpha));
-                draw_circle_lines(
-                    centre.x,
-                    centre.y,
-                    r,
-                    (size / 15.0).max(2.0),
-                    color(*ink, alpha),
-                );
-                pop();
+                draw_circle(at[0], at[1], r, color(*ink, 0.25 * alpha));
+                draw_circle_lines(at[0], at[1], r, (size / 15.0).max(2.0), color(*ink, alpha));
             }
-            Look::Sheet { fill, scrim, rows } => {
-                self.sheet(scene, layer, frame, *fill, *scrim, rows, alpha);
-            }
+            Look::Sheet { .. } => unreachable!("drawn above"),
         }
+        pop();
     }
 
     /// Text placed by [`place_block`], with its plate or border if the style has one.
@@ -335,26 +395,7 @@ impl Painter {
         set.draw(origin, alpha);
     }
 
-    /// The parent phone of a sheet, and the parent's pose now.
-    fn sheet_phone(&self, scene: &Scene, item: &Item) -> Option<(PhoneLayout, Delta)> {
-        let parent = item.parent.as_deref()?;
-        let host = scene
-            .layers
-            .iter()
-            .find(|l| l.item.name.as_deref() == Some(parent))?;
-        let Look::Phone {
-            at, width, screen, ..
-        } = &host.item.look
-        else {
-            return None;
-        };
-        Some((
-            phone_layout(*at, *width, shape(*screen, scene.game)),
-            host.pose,
-        ))
-    }
-
-    #[allow(clippy::too_many_arguments)]
+    /// A sheet: the scrim over its phone's screen, then the sheet itself, cut to the screen.
     fn sheet(
         &self,
         scene: &Scene,
@@ -363,19 +404,15 @@ impl Painter {
         fill: Rgba,
         scrim: f32,
         rows: &[Row],
-        alpha: f32,
     ) {
-        let Some((phone, host)) = self.sheet_phone(scene, layer.item) else {
+        let alpha = layer.alpha;
+        let Some((screen, radius)) = layer
+            .parents
+            .last()
+            .and_then(|(phone, _)| screen_of(phone, scene.game))
+        else {
             return;
         };
-        // Where the screen is now, moved with its phone (turns and scales aside).
-        let shift = vec2(host.x, host.y + host.frames * frame.h);
-        let screen = Rect::new(
-            phone.screen.x + shift.x,
-            phone.screen.y + shift.y,
-            phone.screen.w,
-            phone.screen.h,
-        );
         let sheet = self.sheet_layout(rows, screen.w);
         let placed = Rect::new(
             screen.x,
@@ -383,24 +420,21 @@ impl Painter {
             screen.w,
             sheet.height,
         );
-        // The sheet's own slide, without its parent's (already in `screen`).
-        let own = Delta {
-            x: layer.pose.x - host.x,
-            y: layer.pose.y - host.y,
-            frames: layer.pose.frames - host.frames,
-            ..layer.pose
-        };
-        // The scrim darkens as the sheet comes up: none a whole height down, all when home.
-        let arrived = 1.0 - own.heights.clamp(0.0, 1.0);
+        // With the phone where it is now: the scrim darkens as the sheet comes up, none when it
+        // is a whole height down, all when it is home.
+        let (parents, own) = self.matrices(layer, frame, scene.game);
+        push(parents);
+        let arrived = 1.0 - layer.pose.heights.clamp(0.0, 1.0);
         fill_rounded(
             screen,
-            phone.screen_radius,
+            radius,
             Color::new(0.0, 0.0, 0.0, scrim * arrived * alpha),
         );
-        with_clip(screen, || {
-            unsafe { get_internal_gl() }
-                .quad_gl
-                .push_model_matrix(model(own, placed, frame.h, 0.0));
+        pop();
+        // A clip is a rectangle in the frame: the box around the screen's corners, carried by
+        // the phone's pose.
+        with_clip(carried_box(parents, screen), || {
+            push(parents * own);
             fill_rounded(placed, sheet.radius, color(fill, alpha));
             for (top, row) in &sheet.rows {
                 let y = placed.y + top;
@@ -441,7 +475,7 @@ impl Painter {
                     }
                 }
             }
-            unsafe { get_internal_gl() }.quad_gl.pop_model_matrix();
+            pop();
         });
     }
 

@@ -30,8 +30,13 @@ pub struct Scene<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layer<'a> {
     pub item: &'a Item,
-    /// Its change from where it was placed, its parents' included.
+    /// Its own change from where it was placed.
     pub pose: Delta,
+    /// Its parents and their own poses, outermost first: it is moved by each in turn, about
+    /// each one's centre, so text placed on a phone turns with the phone.
+    pub parents: Vec<(&'a Item, Delta)>,
+    /// How opaque it is drawn: its own alpha times its parents'.
+    pub alpha: f32,
 }
 
 /// Which shot is showing at `t` seconds, and how far into it. Past the end, the last shot's
@@ -61,8 +66,18 @@ pub fn scene(reel: &Reel, t: f32) -> Scene<'_> {
         .items
         .iter()
         .filter_map(|item| {
-            let pose = world_pose(shot, item, local, 0)?;
-            (pose.alpha > 0.0).then_some(Layer { item, pose })
+            let pose = own_pose(shot, item, local)?;
+            let parents = parents(shot, item, local)?;
+            let alpha = parents
+                .iter()
+                .fold(pose.alpha, |a, (_, p)| a * p.alpha)
+                .clamp(0.0, 1.0);
+            (alpha > 0.0).then_some(Layer {
+                item,
+                pose,
+                parents,
+                alpha,
+            })
         })
         .collect();
     Scene {
@@ -74,25 +89,34 @@ pub fn scene(reel: &Reel, t: f32) -> Scene<'_> {
     }
 }
 
-/// An item's pose with its parents': theirs and its own composed (offsets add, factors
-/// multiply), and hidden while any of them is. Each turns and scales about its own anchor.
-fn world_pose(shot: &Shot, item: &Item, t: f32, depth: usize) -> Option<Delta> {
-    let own = match &item.name {
-        Some(name) => pose(&shot.actions, name, t)?,
-        None => Delta::NONE,
-    };
-    let Some(parent) = &item.parent else {
-        return Some(own);
-    };
-    // A cycle of parents is a mistake the parser does not look for; stop rather than recurse.
-    if depth > 16 {
-        return Some(own);
+/// An item's own pose at `t`, or `None` while it is not showing. An unnamed item cannot be acted
+/// on, so it stands as placed.
+fn own_pose(shot: &Shot, item: &Item, t: f32) -> Option<Delta> {
+    match &item.name {
+        Some(name) => pose(&shot.actions, name, t),
+        None => Some(Delta::NONE),
     }
-    let parent = shot
-        .items
-        .iter()
-        .find(|i| i.name.as_deref() == Some(parent.as_str()))?;
-    Some(world_pose(shot, parent, t, depth + 1)?.then(own))
+}
+
+/// An item's parents with their own poses at `t`, outermost first; `None` while any of them is
+/// not showing, which hides the item too.
+fn parents<'a>(shot: &'a Shot, item: &Item, t: f32) -> Option<Vec<(&'a Item, Delta)>> {
+    let mut chain = Vec::new();
+    let mut next = item.parent.as_deref();
+    while let Some(name) = next {
+        // A cycle of parents is a mistake the parser does not look for; stop rather than loop.
+        if chain.len() > 16 {
+            break;
+        }
+        let parent = shot
+            .items
+            .iter()
+            .find(|i| i.name.as_deref() == Some(name))?;
+        chain.push((parent, own_pose(shot, parent, t)?));
+        next = parent.parent.as_deref();
+    }
+    chain.reverse();
+    Some(chain)
 }
 
 /// An item's own pose at `t`: `None` while it is not showing.
@@ -293,16 +317,17 @@ mod tests {
     #[test]
     fn a_child_moves_with_its_parent_and_hides_with_it() {
         let r = reel(
-            "[a] 4\nfill @ph #fff\nfill @sheet #000 in=@ph\n0 move @ph 1 y=100 ease=linear\n2 hide @ph",
+            "[a] 4\nfill @ph #fff\nfill @sheet #000 in=@ph\n0 move @ph 1 y=100 alpha=0.5 ease=linear\n2 hide @ph",
         );
         let sheet = |t: f32| {
             scene(&r, t)
                 .layers
                 .iter()
                 .find(|l| l.item.name.as_deref() == Some("sheet"))
-                .map(|l| l.pose.y)
+                .map(|l| (l.pose.y, l.parents[0].1.y, l.alpha))
         };
-        assert_eq!(sheet(1.0), Some(100.0));
+        // Its own pose stands; the parent's comes with it, to be applied about the parent.
+        assert_eq!(sheet(1.0), Some((0.0, 100.0, 0.5)));
         assert_eq!(sheet(2.5), None);
     }
 

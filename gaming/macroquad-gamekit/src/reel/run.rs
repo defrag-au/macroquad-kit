@@ -8,6 +8,7 @@ use macroquad::prelude::*;
 
 use super::draw::Painter;
 use super::file::{Continuity, Reel, Verb};
+use super::grade::Grader;
 use super::timeline::{scene, time_of};
 use crate::app::{Game, Player};
 use crate::harness::{self, Args, plain_target, target_camera};
@@ -83,6 +84,10 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
     let size = vec2(reel.size.0 as f32, reel.size.1 as f32);
     let target = plain_target(reel.size.0, reel.size.1);
     target.texture.set_filter(FilterMode::Linear);
+    // A graded shot's frame goes through its grade into this one.
+    let graded = plain_target(reel.size.0, reel.size.1);
+    graded.texture.set_filter(FilterMode::Linear);
+    let grader = Grader::new().unwrap_or_else(|e| fail(e));
 
     // Which frames to draw, and the last one needed.
     let last = match &output {
@@ -153,12 +158,23 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
         // The report is of the reel's frame, in its pixels: the game's own text was muted.
         harness::report::begin_screen(size);
         clear_background(BLACK);
-        painter.draw(&now, size, game_frame.as_ref());
+        // Offline, as the game's frame is: every glyph is cached as it is drawn, so no caption is
+        // held back a frame, and a shot with no game (which would flush the gate) still has its
+        // text.
+        crate::text::ungated(|| painter.draw(&now, size, game_frame.as_ref()));
+        let finished = match &shot.grade {
+            Some(grade) => {
+                set_camera(&target_camera(size, Vec2::ZERO, &graded));
+                grader.draw(&target.texture, size, grade, frame);
+                &graded
+            }
+            None => &target,
+        };
         set_default_camera();
 
         match (&output, writer.as_mut()) {
             (Output::Video(out), Some(w)) => {
-                w.push(&target.texture.get_texture_data())
+                w.push(&finished.texture.get_texture_data())
                     .unwrap_or_else(|e| fail(format!("{out}: {e}")));
             }
             (Output::Stills { path, at }, _) => {
@@ -166,7 +182,7 @@ pub(crate) async fn run<G: Game>(mut player: Player<G>, args: &Args) -> ! {
                     if (want * reel.fps as f32).round() as u32 == frame {
                         let file = still_path(path, want, at.len());
                         let note = format!("reel {} t={want}s [{}]", reel_name(args), shot.name);
-                        match harness::write_capture(&target.texture, &file, &note) {
+                        match harness::write_capture(&finished.texture, &file, &note) {
                             Ok(report) => println!("wrote {file} and {}", report.display()),
                             Err(e) => fail(format!("{file}: {e}")),
                         }
