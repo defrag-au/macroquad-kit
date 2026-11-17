@@ -7,20 +7,12 @@ decodes it again in a browser, or hands it to another tool to compose.
 
 ## Status
 
-Build steps 1 to 3 are done:
-- shots, cuts, the game, fills, images, phones;
-- items and actions;
-- `--record` and `--shot`;
-- fonts, styles, text, taps and sheets;
-- `set` actions that change the game mid-shot;
-- grades;
-- parents that carry their children.
+In use. The first reel is the Perps premint infomercial
+(`cnft.dev-workers/workers/premint-status/app/promo/clone-registry.reel`): 84 s, rendered in
+about 48 s.
 
-The premint infomercial's opener and steps 1–4 (60 s) render in about 21 s.
-
-The first reel is the Perps premint infomercial
-(`cnft.dev-workers/workers/premint-status/app/promo/clone-registry.reel`). It was cut first in
-HyperFrames, and that cut is the spec: every item below is one that film needs.
+That film was cut first in HyperFrames, and the reel replaced it. Every item below is one that
+film needed.
 
 ## Why in the game and not after it
 
@@ -147,10 +139,12 @@ style NAME FONT SIZE INK [left|centre|right] [top|middle] [em=INK] [shadow=INK] 
 | Line | Places |
 |---|---|
 | `fill [@n] COLOUR` / `fill radial INNER OUTER` / `fill linear TOP … BOTTOM` | A full-frame colour or gradient |
-| `image [@n] IMAGE [fit=cover\|contain]` | A named image over the frame |
+| `image [@n] IMAGE [fit=cover\|contain] [at=X,Y size=WxH] [radius=PX]` | A named image over the frame, or cropped into a box with rounded corners |
+| `rect [@n] at=X,Y size=WxH [fill=INK] [stroke=INK] [border=PX] [radius=PX]` | A rectangle: a full-frame banner, a border around a card |
 | `view [@n]` | The game over the whole frame |
+| `browser [@n] at=X,Y width=W [url="…" bar=STYLE] [chips="EVM ADA" chip=STYLE] [accent=INK]` | A desktop browser showing the game: a toolbar with the address and extension chips, over a page of the game's shape |
 | `phone [@n] at=X,Y width=W [label="…" chip=STYLE] [accent=INK] [blank=WxH]` | A phone showing the game, or a blank screen of that shape. A label sits on its top edge as a chip |
-| `text [@n] STYLE at=X,Y [rot=DEG] "…"` | Text in a style. `\n` breaks a line |
+| `text [@n] STYLE at=X,Y "…"` | Text in a style. `\n` breaks a line, and a blank line between paragraphs is kept |
 | `tap @n at=X,Y [size=PX] [ink=INK]` | A finger's ring. It shows only while a `pulse` plays it |
 | `sheet @n in=@phone [fill=INK] [scrim=0.6]` | A sheet up from the bottom of the phone's screen, cut to it, over a scrim that darkens as it arrives |
 
@@ -159,9 +153,11 @@ A sheet's rows are indented under it:
 - `box STYLE "…" [fill=INK]`, the message being signed;
 - `buttons STYLE "Cancel" "Sign"`. Each is outlined and the last is filled.
 
-Any item takes two placement options:
+Any item takes three placement options:
 
 - **`rot=DEG`**: it is turned as placed, about its centre.
+- **`within=X,Y,WxH`**: it is cut to that window in the frame, wherever its pose takes it. The
+  fine print scrolls past a window by moving a text item `within=` one.
 - **`in=@parent`**: it is placed in the frame like any item. It is then carried by its parent:
   moved, turned and scaled about the parent's centre, faded with it, and hidden when the parent
   is. Text placed on a phone that is being juggled turns with the phone.
@@ -230,11 +226,11 @@ never show its text at all; the opener found that.
 
 ## Next
 
-1. **A browser device for the desktop shot,** and a clipped scroll for the fine print. Then the
-   rest of the storyboard, after which the HyperFrames project is removed.
-2. **The reel's own checks in the report:**
+1. **The reel's own checks in the report:**
    - text off the frame, or under a platform's safe margins;
    - a glyph the font has not got. The app's Noto subset has no ✓ or ™, and both drew as
      nothing.
-3. **A window preview** with scrubbing, a storybook story, and the CATALOG.
-4. **Sound later.** An `audio FILE` line, muxed in the same encode.
+2. **A window preview** with scrubbing, a storybook story, and the CATALOG.
+3. **Sound.** An `audio FILE` line, muxed in the same encode, once there is music.
+4. **Stills for the carousel.** `SCRIPT.md` wants five 1080×1350 stills. That is a reel at that
+   size, or `--shot` on this one with a crop.

@@ -256,6 +256,9 @@ pub struct Item {
     pub parent: Option<String>,
     /// Degrees it is turned as placed (`rot=-8`), about its centre.
     pub rot: f32,
+    /// A window in the frame it is cut to, whatever its pose (`within=110,290,860x1160`): text
+    /// scrolling past a window shows only in it.
+    pub within: Option<Area>,
     pub look: Look,
 }
 
@@ -264,8 +267,34 @@ pub struct Item {
 pub enum Look {
     /// The whole frame.
     Fill(Fill),
-    /// A named image over the whole frame.
-    Image { image: String, fit: Fit },
+    /// A named image: over the whole frame, or in `area` with its corners rounded by `radius`.
+    Image {
+        image: String,
+        fit: Fit,
+        area: Option<Area>,
+        radius: f32,
+    },
+    /// A rectangle, filled, outlined or both: a full-frame banner, a border around a card.
+    Rect {
+        area: Area,
+        fill: Option<Rgba>,
+        stroke: Option<Rgba>,
+        /// The outline's width.
+        border: f32,
+        radius: f32,
+    },
+    /// A desktop browser showing the game: a toolbar with its address and extension chips over
+    /// the page. `at` is its top-left and `width` its outer width; the page below the toolbar
+    /// is the game's shape.
+    Browser {
+        at: [f32; 2],
+        width: f32,
+        /// The address, set in `bar`'s style.
+        url: Option<Label>,
+        /// The extensions' chips, right of the address, each in `chip`'s style.
+        chips: Vec<Label>,
+        accent: Option<Rgba>,
+    },
     /// The game, over the whole frame.
     View,
     /// A phone: `at` is its top-left, `width` its outer width; its height follows its screen's
@@ -295,6 +324,15 @@ pub enum Look {
         scrim: f32,
         rows: Vec<Row>,
     },
+}
+
+/// A rectangle in the frame: its top-left and size, in pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Area {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 /// A chip on a phone's top edge, in a style (`label="MetaMask's browser" chip=chip`).
@@ -705,6 +743,43 @@ fn point(line: usize, s: &str) -> Result<[f32; 2], ReelError> {
     Ok([number(line, "x", x)?, number(line, "y", y)?])
 }
 
+/// `WxH` in pixels, fractions allowed.
+fn extent(line: usize, s: &str) -> Result<[f32; 2], ReelError> {
+    let (w, h) = s
+        .split_once('x')
+        .ok_or_else(|| err(line, format!("`{s}` is not a size; write WIDTHxHEIGHT")))?;
+    let (w, h) = (number(line, "width", w)?, number(line, "height", h)?);
+    if w <= 0.0 || h <= 0.0 {
+        return Err(err(
+            line,
+            format!("`{s}` is not a size; write WIDTHxHEIGHT"),
+        ));
+    }
+    Ok([w, h])
+}
+
+/// An area from `at=X,Y` and `size=WxH`.
+fn area(line: usize, at: &str, size: &str) -> Result<Area, ReelError> {
+    let [x, y] = point(line, at)?;
+    let [w, h] = extent(line, size)?;
+    Ok(Area { x, y, w, h })
+}
+
+/// An area written whole: `X,Y,WxH`.
+fn window_area(line: usize, s: &str) -> Result<Area, ReelError> {
+    let bad = || {
+        err(
+            line,
+            format!("`{s}` is not an area; write X,Y,WIDTHxHEIGHT"),
+        )
+    };
+    let mut parts = s.splitn(3, ',');
+    let (Some(x), Some(y), Some(size)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(bad());
+    };
+    area(line, &format!("{x},{y}"), size).map_err(|_| bad())
+}
+
 /// The ease called `name`: the kit's curve names, hyphenated (`sine-in-out`, `back-out`).
 fn ease(line: usize, name: &str) -> Result<Ease, ReelError> {
     Ease::ALL
@@ -1006,7 +1081,7 @@ impl Parser {
             "style" => self.style(line, words),
             "grade" => self.grade(line, words),
             "game" => self.game(line, words),
-            "fill" | "image" | "view" | "phone" | "text" | "tap" | "sheet" => {
+            "fill" | "image" | "view" | "phone" | "text" | "tap" | "sheet" | "rect" | "browser" => {
                 self.item(line, keyword, words)
             }
             other => Err(err(line, format!("`{other}` is not a reel line"))),
@@ -1285,6 +1360,10 @@ impl Parser {
             .map(|r| number(line, "rot", &r))
             .transpose()?
             .unwrap_or(0.0);
+        let within = words
+            .take("within")
+            .map(|w| window_area(line, &w))
+            .transpose()?;
         let positional = words.texts();
         let look = match keyword {
             "fill" => {
@@ -1320,12 +1399,34 @@ impl Parser {
                         return Err(err(line, format!("`fit={other}`: cover or contain")));
                     }
                 };
-                words.done("image", &["fit", "in", "rot"])?;
+                let area = match (words.take("at"), words.take("size")) {
+                    (Some(at), Some(size)) => Some(area(line, &at, &size)?),
+                    (None, None) => None,
+                    _ => {
+                        return Err(err(
+                            line,
+                            "an image in a box takes both `at=X,Y` and `size=WxH`",
+                        ));
+                    }
+                };
+                let radius = words
+                    .take("radius")
+                    .map(|r| number(line, "radius", &r))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                words.done(
+                    "image",
+                    &["fit", "at", "size", "radius", "in", "rot", "within"],
+                )?;
                 Look::Image {
                     image: image.clone(),
                     fit,
+                    area,
+                    radius,
                 }
             }
+            "rect" => self.rect(line, words)?,
+            "browser" => self.browser(line, words)?,
             "text" => self.text(line, words)?,
             "tap" => self.tap(line, words)?,
             "sheet" => {
@@ -1339,9 +1440,120 @@ impl Parser {
             name,
             parent,
             rot,
+            within,
             look,
         });
         Ok(())
+    }
+
+    /// `rect [@name] at=X,Y size=WxH [fill=INK] [stroke=INK] [border=PX] [radius=PX]`.
+    fn rect(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
+        let usage =
+            "write `rect [@name] at=X,Y size=WxH [fill=INK] [stroke=INK border=PX] [radius=PX]`";
+        if !words.positional.is_empty() {
+            return Err(err(line, usage));
+        }
+        let (Some(at), Some(size)) = (words.take("at"), words.take("size")) else {
+            return Err(err(line, usage));
+        };
+        let area = area(line, &at, &size)?;
+        let mut colour = |key: &str| -> Result<Option<Rgba>, ReelError> {
+            words.take(key).map(|c| self.colour(line, &c)).transpose()
+        };
+        let fill = colour("fill")?;
+        let stroke = colour("stroke")?;
+        let mut num = |key: &str, default: f32| -> Result<f32, ReelError> {
+            words
+                .take(key)
+                .map(|v| number(line, key, &v))
+                .transpose()
+                .map(|n| n.unwrap_or(default))
+        };
+        let border = num("border", 3.0)?;
+        let radius = num("radius", 0.0)?;
+        if fill.is_none() && stroke.is_none() {
+            return Err(err(
+                line,
+                "a rect draws nothing without `fill=` or `stroke=`",
+            ));
+        }
+        words.done(
+            "rect",
+            &[
+                "at", "size", "fill", "stroke", "border", "radius", "in", "rot", "within",
+            ],
+        )?;
+        Ok(Look::Rect {
+            area,
+            fill,
+            stroke,
+            border,
+            radius,
+        })
+    }
+
+    /// `browser [@name] at=X,Y width=W [url="…" bar=STYLE] [chips="EVM ADA" chip=STYLE]
+    /// [accent=INK]`.
+    fn browser(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
+        if !words.positional.is_empty() {
+            return Err(err(
+                line,
+                "write `browser [@name] at=X,Y width=W [url=\"…\" bar=STYLE]`",
+            ));
+        }
+        let at = point(
+            line,
+            &words
+                .take("at")
+                .ok_or_else(|| err(line, "a browser needs `at=X,Y`"))?,
+        )?;
+        let width = number(
+            line,
+            "width",
+            &words
+                .take("width")
+                .ok_or_else(|| err(line, "a browser needs `width=W`"))?,
+        )?;
+        let url = match (words.take("url"), words.take("bar")) {
+            (Some(text), Some(style)) => Some(Label {
+                text,
+                style: self.style_named(line, &style)?,
+            }),
+            (Some(_), None) => return Err(err(line, "a browser's `url=` needs `bar=STYLE`")),
+            (None, Some(_)) => return Err(err(line, "`bar=` styles a `url=`; give one")),
+            (None, None) => None,
+        };
+        let chips = match (words.take("chips"), words.take("chip")) {
+            (Some(list), Some(style)) => {
+                let style = self.style_named(line, &style)?;
+                list.split_whitespace()
+                    .map(|text| Label {
+                        text: text.to_string(),
+                        style: style.clone(),
+                    })
+                    .collect()
+            }
+            (Some(_), None) => return Err(err(line, "a browser's `chips=` needs `chip=STYLE`")),
+            (None, Some(_)) => return Err(err(line, "`chip=` styles `chips=`; give them")),
+            (None, None) => Vec::new(),
+        };
+        let accent = words
+            .take("accent")
+            .map(|c| self.colour(line, &c))
+            .transpose()?;
+        words.done(
+            "browser",
+            &[
+                "at", "width", "url", "bar", "chips", "chip", "accent", "in", "rot", "within",
+            ],
+        )?;
+        Ok(Look::Browser {
+            at,
+            width,
+            url,
+            chips,
+            accent,
+        })
     }
 
     fn phone(&self, line: usize, mut words: Words) -> Result<Look, ReelError> {
@@ -1664,6 +1876,7 @@ fn check(shot: &Shot) -> Result<(), ReelError> {
         let shows_game = matches!(
             item.look,
             Look::View
+                | Look::Browser { .. }
                 | Look::Phone {
                     screen: Screen::Game,
                     ..
@@ -1985,6 +2198,88 @@ sheet @sign in=@ph scrim=0.5
             }
         );
         assert_eq!(reel.shots[0].actions[0].verb, Verb::Pulse { seconds: 0.55 });
+    }
+
+    #[test]
+    fn rects_browsers_boxed_images_and_windows_parse() {
+        let reel = Reel::parse(
+            r##"
+reel 1080x1920 30
+ink gold #f5c542
+font mono app/Mono.ttf
+style url mono 28 #dfffd0
+style ext mono 26 #070c09 plate=#dfffd0
+image card app/card.jpg
+[s] 8
+game 1280x800 px=1.5
+rect @burst at=0,0 size=1080x1920 fill=gold
+browser @web at=40,520 width=1000 url="robinhood.perp.quest" bar=url chips="EVM ADA" chip=ext
+image @card card at=60,470 size=960x504 radius=24
+text @roll url at=110,1490 within=110,290,860x1160 "fine print"
+"##,
+        )
+        .unwrap();
+        let items = &reel.shots[0].items;
+        assert_eq!(
+            items[0].look,
+            Look::Rect {
+                area: Area {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 1080.0,
+                    h: 1920.0
+                },
+                fill: Some(Rgba([0xf5, 0xc5, 0x42, 255])),
+                stroke: None,
+                border: 3.0,
+                radius: 0.0,
+            }
+        );
+        let Look::Browser { url, chips, .. } = &items[1].look else {
+            panic!("{:?}", items[1].look)
+        };
+        assert_eq!(url.as_ref().unwrap().text, "robinhood.perp.quest");
+        let chips: Vec<&str> = chips.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(chips, ["EVM", "ADA"]);
+        assert!(matches!(
+            items[2].look,
+            Look::Image {
+                area: Some(Area { w: 960.0, .. }),
+                radius: 24.0,
+                ..
+            }
+        ));
+        assert_eq!(
+            items[3].within,
+            Some(Area {
+                x: 110.0,
+                y: 290.0,
+                w: 860.0,
+                h: 1160.0
+            })
+        );
+
+        let cases = [
+            (
+                "rect at=0,0 size=10x10",
+                "line 3: a rect draws nothing without `fill=` or `stroke=`",
+            ),
+            (
+                "browser at=0,0 width=10 url=x",
+                "line 3: a browser's `url=` needs `bar=STYLE`",
+            ),
+            (
+                "rect at=0,0 size=10x10 fill=#fff within=1,2",
+                "line 3: `1,2` is not an area; write X,Y,WIDTHxHEIGHT",
+            ),
+            (
+                "browser at=0,0 width=10",
+                "line 3: shot `a` has no `game` line to show; give a phone `blank=WxH` for an empty screen",
+            ),
+        ];
+        for (body, want) in cases {
+            assert_eq!(error(&format!("{HEAD}{body}")), want, "for {body:?}");
+        }
     }
 
     #[test]

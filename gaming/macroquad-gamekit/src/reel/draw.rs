@@ -15,7 +15,7 @@ use macroquad::models::{Mesh, Vertex, draw_mesh};
 use macroquad::prelude::*;
 
 use super::file::{
-    Align, Anchor, Delta, Fill, Fit, Item, Look, Reel, Rgba, Row, Screen, Style, runs,
+    Align, Anchor, Area, Delta, Fill, Fit, Item, Label, Look, Reel, Rgba, Row, Screen, Style, runs,
 };
 use super::timeline::{Layer, Scene};
 use crate::clip::with_clip;
@@ -49,6 +49,76 @@ pub fn phone_layout(at: [f32; 2], width: f32, shape: (u32, u32)) -> PhoneLayout 
         rim,
         screen: Rect::new(at[0] + bezel, at[1] + bezel, screen_w, screen_h),
         screen_radius: width * 0.095,
+    }
+}
+
+/// A desktop browser: its toolbar over a page of the game's shape.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BrowserLayout {
+    pub outer: Rect,
+    pub radius: f32,
+    pub rim: f32,
+    /// The toolbar, across the top inside the rim.
+    pub bar: Rect,
+    /// The page below it.
+    pub page: Rect,
+}
+
+/// A browser `width` wide at `at`, its page the game's shape (a desktop's, if there is none).
+pub fn browser_layout(at: [f32; 2], width: f32, game: Option<(u32, u32)>) -> BrowserLayout {
+    let (gw, gh) = game.unwrap_or((1280, 800));
+    let rim = (width * 0.003).max(1.0).round();
+    let inner_w = width - 2.0 * rim;
+    let bar_h = (width * 0.074).round();
+    let page_h = (inner_w * gh as f32 / gw.max(1) as f32).round();
+    let outer = Rect::new(at[0], at[1], width, bar_h + page_h + 2.0 * rim);
+    BrowserLayout {
+        outer,
+        radius: width * 0.022,
+        rim,
+        bar: Rect::new(at[0] + rim, at[1] + rim, inner_w, bar_h),
+        page: Rect::new(at[0] + rim, at[1] + rim + bar_h, inner_w, page_h),
+    }
+}
+
+/// `text` with each blank line holding a zero-width space. The layout drops an empty line, so
+/// paragraphs written apart (`"…\n\n…"`) would run together; a line holding a zero-width space
+/// is a line's height of nothing. (Not a no-break space: that is whitespace to the layout, which
+/// drops it with the line.)
+pub fn keep_blank_lines(text: &str) -> String {
+    text.split('\n')
+        .map(|line| if line.is_empty() { "\u{200b}" } else { line })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// An [`Area`] as macroquad's `Rect`.
+fn rect_of(a: Area) -> Rect {
+    Rect::new(a.x, a.y, a.w, a.h)
+}
+
+/// `r` shrunk by `by` on every side.
+fn inset(r: Rect, by: f32) -> Rect {
+    Rect::new(r.x + by, r.y + by, r.w - 2.0 * by, r.h - 2.0 * by)
+}
+
+/// A soft glow of `rim`'s colour around a rounded `rect`: three widening, fading fills.
+fn glow(rect: Rect, radius: f32, rim: Color, alpha: f32) {
+    for (grow, a) in [(36.0, 0.05), (20.0, 0.07), (8.0, 0.1)] {
+        let g = Rect::new(
+            rect.x - grow,
+            rect.y - grow,
+            rect.w + 2.0 * grow,
+            rect.h + 2.0 * grow,
+        );
+        fill_rounded(
+            g,
+            radius + grow,
+            Color {
+                a: a * alpha,
+                ..rim
+            },
+        );
     }
 }
 
@@ -247,7 +317,7 @@ impl Painter {
         let mut rich = RichText::new();
         let plain = rich.style(self.text_style(style, ink.unwrap_or(style.ink)));
         let em = rich.style(self.text_style(style, style.em.unwrap_or(style.ink)));
-        for run in runs(body) {
+        for run in runs(&keep_blank_lines(body)) {
             rich.text(&run.text, if run.em { em } else { plain });
         }
         let m = MeasureAt(1.0);
@@ -288,7 +358,10 @@ impl Painter {
         game: Option<(u32, u32)>,
     ) -> Rect {
         match &item.look {
-            Look::Fill(_) | Look::Image { .. } | Look::View => frame,
+            Look::Fill(_) | Look::View => frame,
+            Look::Image { area, .. } => area.map_or(frame, rect_of),
+            Look::Rect { area, .. } => rect_of(*area),
+            Look::Browser { at, width, .. } => browser_layout(*at, *width, game).outer,
             Look::Phone {
                 at, width, screen, ..
             } => phone_layout(*at, *width, shape(*screen, game)).outer,
@@ -325,6 +398,14 @@ impl Painter {
     }
 
     fn layer(&self, scene: &Scene, layer: &Layer, frame: Rect, game: Option<&Texture2D>) {
+        match layer.item.within {
+            // Cut to its window in the frame, wherever its pose takes it.
+            Some(window) => with_clip(rect_of(window), || self.posed(scene, layer, frame, game)),
+            None => self.posed(scene, layer, frame, game),
+        }
+    }
+
+    fn posed(&self, scene: &Scene, layer: &Layer, frame: Rect, game: Option<&Texture2D>) {
         let alpha = layer.alpha;
         if let Look::Sheet { fill, scrim, rows } = &layer.item.look {
             self.sheet(scene, layer, frame, *fill, *scrim, rows);
@@ -334,10 +415,46 @@ impl Painter {
         push(parents * own);
         match &layer.item.look {
             Look::Fill(fill) => draw_fill(fill, frame, alpha),
-            Look::Image { image, fit } => {
+            Look::Image {
+                image,
+                fit,
+                area,
+                radius,
+            } => {
                 if let Some(texture) = self.images.get(image) {
-                    self.image(texture, frame, *fit, alpha);
+                    match area {
+                        Some(area) => {
+                            let tint = Color::new(1.0, 1.0, 1.0, alpha);
+                            self.art.draw(texture, rect_of(*area), *radius, tint);
+                        }
+                        None => self.image(texture, frame, *fit, alpha),
+                    }
                 }
+            }
+            Look::Rect {
+                area,
+                fill,
+                stroke,
+                border,
+                radius,
+            } => {
+                let r = rect_of(*area);
+                if let Some(fill) = fill {
+                    fill_rounded(r, *radius, color(*fill, alpha));
+                }
+                if let Some(stroke) = stroke {
+                    stroke_rounded(r, *radius, *border, color(*stroke, alpha));
+                }
+            }
+            Look::Browser {
+                at,
+                width,
+                url,
+                chips,
+                accent,
+            } => {
+                let b = browser_layout(*at, *width, scene.game);
+                self.browser(&b, url.as_ref(), chips, *accent, game, alpha);
             }
             Look::View => {
                 if let Some(texture) = game {
@@ -551,32 +668,69 @@ impl Painter {
         }
     }
 
+    /// A browser: the glow and rim a phone has, the toolbar with its three dots, the address in
+    /// a pill and the extensions' chips at its right end, and the page.
+    fn browser(
+        &self,
+        b: &BrowserLayout,
+        url: Option<&Label>,
+        chips: &[Label],
+        accent: Option<Rgba>,
+        page: Option<&Texture2D>,
+        alpha: f32,
+    ) {
+        let rim = accent.map_or(Color::from_rgba(44, 58, 48, 255), |c| color(c, 1.0));
+        glow(b.outer, b.radius, rim, alpha);
+        fill_rounded(b.outer, b.radius, Color { a: alpha, ..rim });
+        let inner = inset(b.outer, b.rim);
+        fill_rounded(inner, b.radius - b.rim, Color::new(0.10, 0.13, 0.11, alpha));
+        if let Some(texture) = page {
+            let tint = Color::new(1.0, 1.0, 1.0, alpha);
+            self.art
+                .draw_target(texture, b.page, b.radius * 0.6, tint, Finish::NONE);
+        }
+        // The dots.
+        let mid = b.bar.y + b.bar.h / 2.0;
+        let dot = b.bar.h * 0.12;
+        for i in 0..3 {
+            let x = b.bar.x + b.bar.h * 0.35 + i as f32 * dot * 3.4;
+            draw_circle(x, mid, dot, Color::new(0.24, 0.29, 0.25, alpha));
+        }
+        // The chips, laid right to left from the bar's right end.
+        let gap = b.bar.h * 0.15;
+        let mut right = b.bar.right() - b.bar.h * 0.3;
+        for chip in chips.iter().rev() {
+            let st = &self.styles[&chip.style];
+            let set = self.set(&chip.style, &chip.text, None, None);
+            let at = vec2(right - st.pad[0], mid);
+            let placed = place_block(st, &set, at, Align::Right, Anchor::Middle);
+            right = placed.1.x - gap;
+            self.block(st, &set, placed, alpha);
+        }
+        // The address, in a pill from after the dots to before the chips.
+        if let Some(url) = url {
+            let st = &self.styles[&url.style];
+            let set = self.set(&url.style, &url.text, None, None);
+            let left = b.bar.x + b.bar.h * 0.35 + dot * 3.4 * 2.0 + dot * 3.0;
+            let pill = Rect::new(
+                left,
+                mid - b.bar.h * 0.3,
+                (right - left).max(0.0),
+                b.bar.h * 0.6,
+            );
+            fill_rounded(pill, pill.h / 2.0, Color::new(0.043, 0.059, 0.047, alpha));
+            let at = vec2(pill.x + pill.h * 0.5, mid);
+            let placed = place_block(st, &set, at, Align::Left, Anchor::Middle);
+            set.draw(placed.0, alpha);
+        }
+    }
+
     /// A phone: a soft glow of its rim's colour, the rim, the body, and the screen.
     fn phone(&self, p: &PhoneLayout, accent: Option<Rgba>, screen: Option<&Texture2D>, alpha: f32) {
         let rim = accent.map_or(Color::from_rgba(44, 58, 48, 255), |c| color(c, 1.0));
-        for (grow, a) in [(36.0, 0.05), (20.0, 0.07), (8.0, 0.1)] {
-            let g = Rect::new(
-                p.outer.x - grow,
-                p.outer.y - grow,
-                p.outer.w + 2.0 * grow,
-                p.outer.h + 2.0 * grow,
-            );
-            fill_rounded(
-                g,
-                p.outer_radius + grow,
-                Color {
-                    a: a * alpha,
-                    ..rim
-                },
-            );
-        }
+        glow(p.outer, p.outer_radius, rim, alpha);
         fill_rounded(p.outer, p.outer_radius, Color { a: alpha, ..rim });
-        let body = Rect::new(
-            p.outer.x + p.rim,
-            p.outer.y + p.rim,
-            p.outer.w - 2.0 * p.rim,
-            p.outer.h - 2.0 * p.rim,
-        );
+        let body = inset(p.outer, p.rim);
         fill_rounded(
             body,
             p.outer_radius - p.rim,
@@ -708,6 +862,24 @@ mod tests {
             slid.transform_point3(centre)
                 .abs_diff_eq(centre + vec3(0.0, 603.0, 0.0), 1e-3)
         );
+    }
+
+    #[test]
+    fn a_blank_line_between_paragraphs_is_kept() {
+        assert_eq!(keep_blank_lines("one\n\ntwo"), "one\n\u{200b}\ntwo");
+        assert!(
+            !'\u{200b}'.is_whitespace(),
+            "the layout splits on whitespace"
+        );
+        assert_eq!(keep_blank_lines("one\ntwo"), "one\ntwo");
+    }
+
+    #[test]
+    fn a_browsers_page_is_the_games_shape_under_its_toolbar() {
+        let b = browser_layout([40.0, 520.0], 1000.0, Some((1280, 800)));
+        assert_eq!(b.page.y, b.bar.bottom());
+        assert!((b.page.h / b.page.w - 800.0 / 1280.0).abs() < 0.01);
+        assert_eq!(b.outer.bottom(), b.page.bottom() + b.rim);
     }
 
     #[test]
