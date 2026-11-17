@@ -802,20 +802,26 @@ impl<G: Game> Player<G> {
     pub(crate) fn skip(&mut self, seconds: f32) {
         let frames = (seconds / harness::FIXED_DT).round() as u32;
         for _ in 0..frames {
-            let placed = place(self.stage, &self.args);
-            let text = self.startup.text();
-            let keys = (&[][..], self.sim.frames);
-            simulate(
-                &mut self.game,
-                &mut self.sim,
-                &self.args,
-                keys,
-                placed,
-                harness::FIXED_DT,
-                text,
-            );
-            self.sim.frames += 1;
+            self.advance(harness::FIXED_DT);
         }
+    }
+
+    /// Advance the game by `dt` without drawing it: what a frame does, less the drawing. A reel
+    /// seeking back replays its shot this way.
+    pub(crate) fn advance(&mut self, dt: f32) {
+        let placed = place(self.stage, &self.args);
+        let text = self.startup.text();
+        let keys = (&[][..], self.sim.frames);
+        simulate(
+            &mut self.game,
+            &mut self.sim,
+            &self.args,
+            keys,
+            placed,
+            dt,
+            text,
+        );
+        self.sim.frames += 1;
     }
 
     /// Advance the game by `dt` and draw it: the finished frame, rows bottom-first as a render

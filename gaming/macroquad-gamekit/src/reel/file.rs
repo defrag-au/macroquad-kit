@@ -64,7 +64,41 @@ pub struct Reel {
     pub fonts: BTreeMap<String, String>,
     /// Named text styles (`style cap noto 46 #ffffff em=gold centre wrap=860`).
     pub styles: BTreeMap<String, Style>,
+    /// Where text may go without a platform's own buttons and captions covering it
+    /// (`safe top=220 right=120 bottom=380 left=60`); no check when not given.
+    pub safe: Option<Insets>,
     pub shots: Vec<Shot>,
+}
+
+/// Margins in from each edge of the frame, in pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Insets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+impl Insets {
+    /// What is left of a frame `size` inside the margins.
+    pub fn inside(self, size: (u32, u32)) -> Area {
+        Area {
+            x: self.left,
+            y: self.top,
+            w: size.0 as f32 - self.left - self.right,
+            h: size.1 as f32 - self.top - self.bottom,
+        }
+    }
+}
+
+/// Whether a text item is held to the reel's safe area.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Safety {
+    /// It is: text outside the safe area is reported.
+    #[default]
+    Check,
+    /// It is not (`safe=ignore`): text meant to leave the frame, a dropped phone's label.
+    Ignore,
 }
 
 /// How a run of text is set: a font, a size and an ink, and how it sits.
@@ -259,6 +293,8 @@ pub struct Item {
     /// A window in the frame it is cut to, whatever its pose (`within=110,290,860x1160`): text
     /// scrolling past a window shows only in it.
     pub within: Option<Area>,
+    /// Whether its text is held to the reel's safe area (`safe=ignore`).
+    pub safety: Safety,
     pub look: Look,
 }
 
@@ -826,6 +862,7 @@ struct Parser {
     fonts: BTreeMap<String, String>,
     styles: BTreeMap<String, Style>,
     grades: BTreeMap<String, Grade>,
+    safe: Option<Insets>,
     shots: Vec<Shot>,
     /// What an indented line belongs to.
     under: Under,
@@ -875,6 +912,7 @@ impl Parser {
             images: self.images,
             fonts: self.fonts,
             styles: self.styles,
+            safe: self.safe,
             shots: self.shots,
         })
     }
@@ -889,6 +927,30 @@ impl Parser {
                 format!("no style called `{name}`; name it with a `style {name} …` line first"),
             ))
         }
+    }
+
+    /// `safe top=PX right=PX bottom=PX left=PX`.
+    fn safe(&mut self, line: usize, mut words: Words) -> Result<(), ReelError> {
+        if self.safe.is_some() {
+            return Err(err(line, "a second `safe` line"));
+        }
+        if !words.positional.is_empty() {
+            return Err(err(line, "write `safe top=PX right=PX bottom=PX left=PX`"));
+        }
+        let mut insets = Insets::default();
+        for (key, slot) in [
+            ("top", &mut insets.top),
+            ("right", &mut insets.right),
+            ("bottom", &mut insets.bottom),
+            ("left", &mut insets.left),
+        ] {
+            if let Some(v) = words.take(key) {
+                *slot = number(line, key, &v)?;
+            }
+        }
+        words.done("safe", &["top", "right", "bottom", "left"])?;
+        self.safe = Some(insets);
+        Ok(())
     }
 
     /// `grade NAME [mono=…] [contrast=…] [exposure=…] [vignette=…] [scan=…] [tape=…] [bleed=…]`.
@@ -1080,6 +1142,7 @@ impl Parser {
             }
             "style" => self.style(line, words),
             "grade" => self.grade(line, words),
+            "safe" => self.safe(line, words),
             "game" => self.game(line, words),
             "fill" | "image" | "view" | "phone" | "text" | "tap" | "sheet" | "rect" | "browser" => {
                 self.item(line, keyword, words)
@@ -1360,6 +1423,13 @@ impl Parser {
             .map(|r| number(line, "rot", &r))
             .transpose()?
             .unwrap_or(0.0);
+        let safety = match words.take("safe").as_deref() {
+            None | Some("check") => Safety::Check,
+            Some("ignore") => Safety::Ignore,
+            Some(other) => {
+                return Err(err(line, format!("`safe={other}`: check or ignore")));
+            }
+        };
         let within = words
             .take("within")
             .map(|w| window_area(line, &w))
@@ -1441,6 +1511,7 @@ impl Parser {
             parent,
             rot,
             within,
+            safety,
             look,
         });
         Ok(())
@@ -2280,6 +2351,21 @@ text @roll url at=110,1490 within=110,290,860x1160 "fine print"
         for (body, want) in cases {
             assert_eq!(error(&format!("{HEAD}{body}")), want, "for {body:?}");
         }
+    }
+
+    #[test]
+    fn a_safe_area_is_margins_in_from_the_edges() {
+        let reel = Reel::parse(
+            "reel 1080x1920 30\nsafe top=220 right=120 bottom=380 left=60\n[a] 1\nfill @x #fff safe=ignore",
+        )
+        .unwrap();
+        let inside = reel.safe.unwrap().inside(reel.size);
+        assert_eq!((inside.x, inside.y, inside.w, inside.h), (60.0, 220.0, 900.0, 1320.0));
+        assert_eq!(reel.shots[0].items[0].safety, Safety::Ignore);
+        assert_eq!(
+            error("reel 10x10 30\n[a] 1\nfill #fff safe=maybe"),
+            "line 3: `safe=maybe`: check or ignore"
+        );
     }
 
     #[test]

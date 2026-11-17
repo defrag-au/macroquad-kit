@@ -14,10 +14,12 @@ use image as _;
 use macroquad::models::{Mesh, Vertex, draw_mesh};
 use macroquad::prelude::*;
 
+use super::check::Drawn;
 use super::file::{
-    Align, Anchor, Area, Delta, Fill, Fit, Item, Label, Look, Reel, Rgba, Row, Screen, Style, runs,
+    Align, Anchor, Area, Delta, Fill, Fit, Item, Label, Look, Reel, Rgba, Row, Safety, Screen,
+    Style, runs,
 };
-use super::timeline::{Layer, Scene};
+use super::timeline::{Layer, Motion, Scene};
 use crate::clip::with_clip;
 use crate::shape::{Finish, RoundedArt, fill_rounded, stroke_rounded};
 use crate::text::{self, MeasureAt, RichText, TextLayout, TextStyle};
@@ -266,6 +268,8 @@ enum SetRow {
 pub struct Painter {
     images: BTreeMap<String, Texture2D>,
     fonts: BTreeMap<String, Font>,
+    /// The same fonts as fontdue reads them, to ask which characters each has.
+    outlines: BTreeMap<String, fontdue::Font>,
     styles: BTreeMap<String, Style>,
     art: RoundedArt,
 }
@@ -284,18 +288,63 @@ impl Painter {
             images.insert(name.clone(), texture);
         }
         let mut fonts = BTreeMap::new();
+        let mut outlines = BTreeMap::new();
         for (name, path) in &reel.fonts {
             let bytes = std::fs::read(path).map_err(|e| format!("font `{name}` ({path}): {e}"))?;
             let font =
                 text::load_font(&bytes).map_err(|e| format!("font `{name}` ({path}): {e}"))?;
+            let outline = fontdue::Font::from_bytes(bytes.as_slice(), Default::default())
+                .map_err(|e| format!("font `{name}` ({path}): {e}"))?;
             fonts.insert(name.clone(), font);
+            outlines.insert(name.clone(), outline);
         }
         Ok(Painter {
             images,
             fonts,
+            outlines,
             styles: reel.styles.clone(),
             art: RoundedArt::new(),
         })
+    }
+
+    /// Whether the font named `font` draws `c`.
+    pub fn has(&self, font: &str, c: char) -> bool {
+        self.outlines
+            .get(font)
+            .is_some_and(|f| f.lookup_glyph_index(c) != 0)
+    }
+
+    /// Every text item showing in `scene` that is held to the safe area and at rest, with its
+    /// box in the frame: carried by its pose and its parents', and cut to its window if it has
+    /// one. Text on its way in or out is left out: it passes through places it does not stay.
+    pub fn text_boxes(&self, scene: &Scene, size: Vec2) -> Vec<Drawn> {
+        let frame = Rect::new(0.0, 0.0, size.x, size.y);
+        scene
+            .layers
+            .iter()
+            .filter(|l| l.item.safety == Safety::Check && l.motion == Motion::Resting)
+            .filter_map(|layer| {
+                let Look::Text { text, .. } = &layer.item.look else {
+                    return None;
+                };
+                let (parents, own) = self.matrices(layer, frame, scene.game);
+                let placed = self.bounds(layer.item, layer.parents.last().map(|p| p.0), frame, scene.game);
+                let mut seen = carried_box(parents * own, placed);
+                if let Some(window) = layer.item.within {
+                    seen = seen.intersect(rect_of(window))?;
+                }
+                Some(Drawn {
+                    line: layer.item.line,
+                    text: text.replace('*', ""),
+                    area: Area {
+                        x: seen.x,
+                        y: seen.y,
+                        w: seen.w,
+                        h: seen.h,
+                    },
+                })
+            })
+            .collect()
     }
 
     fn text_style(&self, style: &Style, ink: Rgba) -> TextStyle {
@@ -317,7 +366,12 @@ impl Painter {
         let mut rich = RichText::new();
         let plain = rich.style(self.text_style(style, ink.unwrap_or(style.ink)));
         let em = rich.style(self.text_style(style, style.em.unwrap_or(style.ink)));
-        for run in runs(&keep_blank_lines(body)) {
+        let runs = runs(&keep_blank_lines(body));
+        // A reel's text is written, not cut to fit: a trailing ellipsis in it is meant, so the
+        // report is told, as it is of a fit's cut.
+        let written: String = runs.iter().map(|r| r.text.as_str()).collect();
+        crate::harness::report::fitted(&written.replace('\n', " "));
+        for run in runs {
             rich.text(&run.text, if run.em { em } else { plain });
         }
         let m = MeasureAt(1.0);

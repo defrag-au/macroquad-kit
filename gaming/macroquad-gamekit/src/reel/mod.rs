@@ -15,6 +15,7 @@
 //! game --reel promo/clone-registry.reel --shot .tmp/r.png --at 2,12.5,18
 //! ```
 
+pub mod check;
 pub mod draw;
 pub mod file;
 pub mod grade;

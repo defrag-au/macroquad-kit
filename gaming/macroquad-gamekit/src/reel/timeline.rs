@@ -37,6 +37,18 @@ pub struct Layer<'a> {
     pub parents: Vec<(&'a Item, Delta)>,
     /// How opaque it is drawn: its own alpha times its parents'.
     pub alpha: f32,
+    /// Whether it is at rest: no action of its own or its parents' is under way. An item
+    /// slamming in or sliding out passes through places it does not stay, and the safe-area
+    /// check is about where text rests.
+    pub motion: Motion,
+}
+
+/// Whether an item is at rest or on its way somewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    Resting,
+    /// An enter, exit, move or pulse of its own or a parent's is under way.
+    Moving,
 }
 
 /// Which shot is showing at `t` seconds, and how far into it. Past the end, the last shot's
@@ -72,11 +84,20 @@ pub fn scene(reel: &Reel, t: f32) -> Scene<'_> {
                 .iter()
                 .fold(pose.alpha, |a, (_, p)| a * p.alpha)
                 .clamp(0.0, 1.0);
+            let moving = std::iter::once(item)
+                .chain(parents.iter().map(|(p, _)| *p))
+                .filter_map(|i| i.name.as_deref())
+                .any(|name| under_way(&shot.actions, name, local));
             (alpha > 0.0).then_some(Layer {
                 item,
                 pose,
                 parents,
                 alpha,
+                motion: if moving {
+                    Motion::Moving
+                } else {
+                    Motion::Resting
+                },
             })
         })
         .collect();
@@ -170,6 +191,21 @@ pub fn pose(actions: &[Action], name: &str, t: f32) -> Option<Delta> {
         }
     }
     showing.then_some(delta)
+}
+
+/// Whether an action on the item `name` is under way at `t`: an enter, exit, move or pulse that
+/// has begun and not finished.
+pub fn under_way(actions: &[Action], name: &str, t: f32) -> bool {
+    actions.iter().filter(|a| a.item == name).any(|a| {
+        let lasts = match a.verb {
+            Verb::Enter { seconds, .. } | Verb::Exit { seconds, .. } | Verb::Pulse { seconds } => {
+                seconds
+            }
+            Verb::Move { seconds, yoyo, .. } => seconds * (yoyo + 1) as f32,
+            Verb::Show | Verb::Hide | Verb::Set(_) => 0.0,
+        };
+        (a.at..a.at + lasts).contains(&t)
+    })
 }
 
 /// How far through `seconds` a thing `since` seconds in is: 0 to 1, and 1 for no time at all.
@@ -299,6 +335,24 @@ mod tests {
         let falling = pose(a, "p", 4.5).unwrap();
         assert!(falling.frames > 0.0 && falling.rot > 0.0);
         assert_eq!(pose(a, "p", 5.0), None);
+    }
+
+    #[test]
+    fn an_item_moves_while_an_action_of_its_own_or_a_parents_is_under_way() {
+        let r = reel(
+            "[a] 9\nfill @ph #fff\nfill @t #000 in=@ph\n1 enter @t slam:0.5\n3 move @ph 1 y=10 yoyo=1",
+        );
+        let motion = |t: f32| {
+            scene(&r, t)
+                .layers
+                .iter()
+                .find(|l| l.item.name.as_deref() == Some("t"))
+                .map(|l| l.motion)
+        };
+        assert_eq!(motion(1.2), Some(Motion::Moving), "slamming in");
+        assert_eq!(motion(2.0), Some(Motion::Resting));
+        assert_eq!(motion(4.5), Some(Motion::Moving), "its phone is moving it: two legs");
+        assert_eq!(motion(5.0), Some(Motion::Resting));
     }
 
     #[test]

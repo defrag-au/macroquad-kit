@@ -690,7 +690,9 @@ impl Args {
     /// watch.
     pub fn window_conf(&self, mut conf: Conf) -> Conf {
         conf.window_title = self.window_title(&conf.window_title);
-        conf.headless = self.capturing();
+        // A reel with nothing to write is its preview: a window to watch it in.
+        let previewing = self.reel.is_some() && self.record.is_none() && self.shot.is_none();
+        conf.headless = self.capturing() && !previewing;
         conf
     }
 }
