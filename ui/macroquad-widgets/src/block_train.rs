@@ -50,6 +50,8 @@ use std::collections::HashMap;
 
 use chain_heartbeat::{BlockBeat, Heartbeat, TrackedTx, TxProgress};
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use crate::shape::{draw_circle, draw_circle_lines};
 use ui_theme::TextSize;
 
 use crate::block_pulse::{PulseState, PulseTicker, draw_mark, format_duration, format_number};

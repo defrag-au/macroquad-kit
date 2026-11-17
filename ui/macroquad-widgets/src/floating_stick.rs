@@ -38,6 +38,8 @@
 //! [`floating_stick`] takes the [`StickView`] the update returned.
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use crate::shape::{draw_circle, draw_circle_lines};
 
 use crate::painter::Painter;
 

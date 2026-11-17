@@ -4,7 +4,7 @@
 //! hit-test). Deliberately tiny — a widget toolkit, not a UI framework.
 
 use macroquad::prelude::*;
-use macroquad_text::{Align, TextStyle, draw_run, measure_run};
+use macroquad_text::{Align, TextStyle, draw_run, measure_run, report};
 use ui_theme::{TextRole, TextSize};
 
 use crate::theme::{self, Theme};
@@ -22,6 +22,9 @@ pub struct Painter<'a> {
     px: f32,
     /// Seconds on the host's clock; see [`Painter::at_time`].
     now: f64,
+    /// Whether what this painter draws can be pressed now, so the mouse over it shows the
+    /// pointer. Off for a screen under a modal ([`Painter::untapped`], [`Painter::inert`]).
+    pressable: bool,
 }
 
 /// Per-frame interaction state for a rect — for building custom interactive
@@ -39,14 +42,27 @@ impl<'a> Painter<'a> {
         theme: Theme,
         tap: Option<Vec2>,
     ) -> Self {
+        let px = screen_dpi_scale();
+        // Kept in step for `draw_rounded_rect` and the shape helpers, which are
+        // free functions and have no painter to ask. Every call site builds its
+        // painter immediately before drawing.
+        crate::sdf::set_px(px);
         Self {
             font,
             mono,
             theme,
             tap,
-            px: screen_dpi_scale(),
+            px,
             now: get_time(),
+            pressable: true,
         }
+    }
+
+    /// What this painter draws cannot be pressed now — a screen under a modal, drawn with no
+    /// tap — so the mouse over its buttons keeps the arrow.
+    pub fn inert(mut self) -> Self {
+        self.pressable = false;
+        self
     }
 
     /// Device pixels per unit where these widgets are drawn: the screen's DPI
@@ -55,6 +71,7 @@ impl<'a> Painter<'a> {
     /// rasterises at that size, so it stays sharp under any camera.
     pub fn pixel_scale(mut self, px: f32) -> Self {
         self.px = px;
+        crate::sdf::set_px(px);
         self
     }
 
@@ -83,6 +100,7 @@ impl<'a> Painter<'a> {
             tap: None,
             px: self.px,
             now: self.now,
+            pressable: false,
         }
     }
 
@@ -194,6 +212,8 @@ impl<'a> Painter<'a> {
             out.push(ch);
         }
         out.push('…');
+        // A cut the kit made, not a symptom a report should flag.
+        report::fitted(&out);
         out
     }
 
@@ -321,6 +341,12 @@ impl<'a> Painter<'a> {
     /// block's capitals are centred on the rect's midline, so a two-line row
     /// sits in its box the way a one-line label does. Descenders hang below
     /// their line, as in print; leave room for them in `gap`.
+    ///
+    /// `gap` is the caller's to choose, and the two uses want different numbers:
+    /// a title over a subtitle is a visual gap (7 in an app bar's title box),
+    /// while paragraph lines want the line advance minus a cap height, so their
+    /// baselines land on the advance (`Message` passes 12 for a 12 pt detail's
+    /// 22 pt advance). Nothing here infers leading from `line.size`.
     pub fn stack_in(&self, lines: &[Line<'_>], rect: Rect, align: Align, gap: f32) {
         let cap = |l: &Line<'_>| match l.mono {
             true => self.cap_height_mono(l.size),
@@ -343,16 +369,41 @@ impl<'a> Painter<'a> {
         }
     }
 
-    /// Did the user tap inside `rect` this frame?
+    /// Did the user tap inside `rect` this frame? Asking marks `rect` as something to press:
+    /// the mouse over it shows the pointer ([`crate::cursor`]).
+    ///
+    /// A "tap anywhere" check (skip an animation, dismiss on any tap) is not a button: read
+    /// [`Painter::tap`] for it. A `rect` covering most of the screen is taken to be one and does
+    /// not show the pointer, so one written with `tapped` cannot point the whole page (found
+    /// 2026-11-15: a reveal's tap-to-skip over the screen did exactly that).
+    ///
+    /// It also offers `rect` to the page as a press ([`macroquad_text::dom::press`]): on the web
+    /// a screen reader and the keyboard reach it as a button named by the text drawn on it.
     pub fn tapped(&self, rect: Rect) -> bool {
+        let (mx, my) = mouse_position();
+        let screen = screen_width() * screen_height();
+        let anywhere = screen > 0.0 && rect.w * rect.h > screen * 0.5;
+        if self.pressable && !anywhere {
+            macroquad_text::dom::press(rect);
+            if rect.contains(vec2(mx, my)) {
+                crate::cursor::want_pointer();
+            }
+        }
         self.tap.is_some_and(|p| rect.contains(p))
     }
 
     /// Hover / pressed / clicked state for `rect` this frame (current-frame
     /// input only — no retained state). `enabled = false` reports all false.
+    /// An enabled `rect` under the mouse shows the pointer ([`crate::cursor`]).
     pub fn interact(&self, rect: Rect, enabled: bool) -> Hit {
+        if enabled && self.pressable {
+            macroquad_text::dom::press(rect);
+        }
         let (mx, my) = mouse_position();
         let over = enabled && rect.contains(vec2(mx, my));
+        if over && self.pressable {
+            crate::cursor::want_pointer();
+        }
         let pressed = over && is_mouse_button_down(MouseButton::Left);
         Hit {
             hover: over && !pressed,
@@ -459,19 +510,29 @@ fn aligned_x(rect: Rect, w: f32, align: Align) -> f32 {
 
 /// Filled rounded rectangle (macroquad has no high-level rounded rect).
 ///
-/// Built as a single convex polygon (four corner arcs joined by straight edges)
-/// filled by a triangle fan from the centre, so every pixel is drawn EXACTLY
-/// once. A rects-plus-corner-discs approach double-draws the overlaps, which is
-/// invisible for opaque fills but compounds alpha into dark corner blobs for
-/// translucent ones (tonal / ghost buttons). `r` is clamped to half the
-/// smaller side.
+/// A rounded rectangle in one quad, antialiased by a distance field.
+///
+/// The shader is the path: it is exact at any radius and its edge is smooth, so
+/// a hairline ring reads as a line rather than as a staircase. A radius under
+/// three quarters of a point is drawn as a plain rectangle instead — there is
+/// no corner to antialias, and the rectangle joins the batch for nothing.
+///
+/// Where the shader cannot load (a backend without GLSL) this falls back to the
+/// tessellated fan below, which is why it is still here: a surface with no GLSL
+/// gets hard edges rather than nothing. The fan is a single convex polygon so
+/// every pixel is drawn EXACTLY once; rects-plus-corner-discs double-draw the
+/// overlaps, which is invisible for opaque fills and compounds alpha into dark
+/// corner blobs for translucent ones.
 pub fn draw_rounded_rect(x: f32, y: f32, w: f32, h: f32, r: f32, color: Color) {
-    use std::f32::consts::PI;
     let r = r.min(w * 0.5).min(h * 0.5).max(0.0);
     if r < 0.75 {
         draw_rectangle(x, y, w, h, color);
         return;
     }
+    if crate::sdf::fill(Rect::new(x, y, w, h), r, color) {
+        return;
+    }
+    use std::f32::consts::PI;
     const SEG: usize = 4;
     let corners = [
         (x + r, y + r, PI, 1.5 * PI),           // top-left

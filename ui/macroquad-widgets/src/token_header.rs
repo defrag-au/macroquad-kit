@@ -11,6 +11,8 @@
 //! them without restating the arithmetic.
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use crate::shape::{draw_circle, draw_circle_lines};
 use ui_theme::{TextSize, mix};
 
 use crate::market_ink::MarketInk;

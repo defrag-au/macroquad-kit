@@ -21,6 +21,9 @@ pub fn fill_rounded(rect: Rect, radius: f32, color: Color) {
 
 /// Outline a rounded rectangle, the line centred on the edge.
 pub fn stroke_rounded(rect: Rect, radius: f32, thickness: f32, color: Color) {
+    if crate::sdf::stroke(rect, radius, thickness, color) {
+        return;
+    }
     let r = radius.min(rect.w / 2.0).min(rect.h / 2.0).max(0.0);
     let (x0, y0, x1, y1) = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
     draw_line(x0 + r, y0, x1 - r, y0, thickness, color);
@@ -88,6 +91,58 @@ pub fn fill_texture_rounded(texture: &Texture2D, rect: Rect, radius: f32, tint: 
         indices,
         texture: Some(texture.clone()),
     });
+}
+
+/// A filled circle.
+///
+/// Named to shadow `macroquad::draw_circle`, so a module that imports this one
+/// draws the exact disc rather than the twenty-sided one. That is deliberate:
+/// the prelude version needs no import, and a second name for the same shape is
+/// how new code ends up drawing the old look.
+pub fn draw_circle(x: f32, y: f32, r: f32, color: Color) {
+    if !crate::sdf::disc(vec2(x, y), r, color) {
+        macroquad::shapes::draw_circle(x, y, r, color);
+    }
+}
+
+/// A circle outline `thickness` wide, from `r` **outwards** — macroquad's own
+/// semantics, kept so existing calls land where they always did.
+pub fn draw_circle_lines(x: f32, y: f32, r: f32, thickness: f32, color: Color) {
+    if !crate::sdf::band(vec2(x, y), r, thickness, color) {
+        macroquad::shapes::draw_circle_lines(x, y, r, thickness, color);
+    }
+}
+
+/// An arc from `rotation` degrees through `arc` degrees, `thickness` wide from
+/// `radius` outwards: macroquad's `draw_arc`, with its argument order and its
+/// outer edge in the same place.
+///
+/// `sides` is accepted and ignored — the shape is exact now, so there are no
+/// sides to ask for. It stays in the signature only so call sites keep
+/// compiling.
+// Eight arguments is macroquad's own signature, and matching it is the whole
+// point: a call site changes only its import. The count is the contract.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_arc(
+    x: f32,
+    y: f32,
+    sides: u8,
+    radius: f32,
+    rotation: f32,
+    thickness: f32,
+    arc: f32,
+    color: Color,
+) {
+    if !crate::sdf::arc(
+        vec2(x, y),
+        radius,
+        thickness,
+        rotation.to_radians(),
+        arc.to_radians(),
+        color,
+    ) {
+        macroquad::shapes::draw_arc(x, y, sides, radius, rotation, thickness, arc, color);
+    }
 }
 
 /// The part of a `texture_size` image, in pixels, that fills a frame of

@@ -16,7 +16,8 @@ use macroquad::prelude::*;
 /// The rounded fills, outlines and clipped art live in the widgets, where the
 /// sheet chrome draws with them too; the kit's callers keep reaching them here.
 pub use macroquad_widgets::shape::{
-    cover_source, fill_rounded, fill_texture_rounded, stroke_rounded,
+    cover_source, draw_arc, draw_circle, draw_circle_lines, fill_rounded, fill_texture_rounded,
+    stroke_rounded,
 };
 
 const VERTEX: &str = r#"#version 100
@@ -102,6 +103,13 @@ impl Default for Finish {
     }
 }
 
+/// Which way a texture's rows run: an image's top-down, a render target's bottom-up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rows {
+    TopDown,
+    BottomUp,
+}
+
 /// Host-owned: create once the window exists, keep, draw through.
 pub struct RoundedArt {
     material: Option<Material>,
@@ -167,11 +175,37 @@ impl RoundedArt {
         tint: Color,
         finish: Finish,
     ) {
+        self.draw_rows(texture, Rows::TopDown, dest, radius, tint, finish);
+    }
+
+    /// The same, for a render target's texture, whose rows come out bottom-first: a frame
+    /// drawn offscreen (a game inside a reel's phone) shown the right way up.
+    pub fn draw_target(
+        &self,
+        texture: &Texture2D,
+        dest: Rect,
+        radius: f32,
+        tint: Color,
+        finish: Finish,
+    ) {
+        self.draw_rows(texture, Rows::BottomUp, dest, radius, tint, finish);
+    }
+
+    fn draw_rows(
+        &self,
+        texture: &Texture2D,
+        rows: Rows,
+        dest: Rect,
+        radius: f32,
+        tint: Color,
+        finish: Finish,
+    ) {
         let tex = vec2(texture.width(), texture.height());
         let src = cover_source(tex, dest.size());
         let params = DrawTextureParams {
             dest_size: Some(dest.size()),
             source: Some(src),
+            flip_y: rows == Rows::BottomUp,
             ..Default::default()
         };
         let Some(m) = &self.material else {

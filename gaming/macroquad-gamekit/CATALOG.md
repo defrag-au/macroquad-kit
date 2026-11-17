@@ -10,7 +10,7 @@ across frames and takes time as an argument. Stories are in `macroquad-storybook
 under "gamekit". MACROQUAD only: no wasm-bindgen, see the shared-crates CLAUDE.md on
 runtime pairs.
 
-40 modules.
+42 modules.
 
 | module | what it is |
 |---|---|
@@ -38,6 +38,7 @@ runtime pairs.
 | `pointer` | `Pointer` — the press, drag, long-press and tap a card game needs, built on the widgets crate's `Gesture`; `Swipes`, the four-way swipe an arcade game needs; and `HoverGrace`, which keeps a hover alive for a moment between targets |
 | `preload` | `Preloader` — a cover over a screen's first frames, lifted once the screen can draw complete |
 | `profile` | `profile` — where each frame's time goes, measured inside the game, in the browser as well as natively |
+| `reel` | `reel` — a game's promo video, rendered by the game from a `.reel` file: its own screens in phone frames, items placed and moved by timed actions, encoded once |
 | `sequence` | `Sequencer` — plays queued cues one after another, each holding the stage until its animation is done |
 | `shape` | `RoundedArt` — art cropped to fill a frame and clipped to its rounded corners, plus the rounded outline every card and badge needs |
 | `sprite` | `Sprite` — a retained, animated display object: where a card is, how it is turned and scaled, how visible, and whether a point is on it |
@@ -49,8 +50,9 @@ runtime pairs.
 | `text` | `RichText` — wrapped text in several styles with inline icon boxes, laid out once and drawn crisp at any pixel scale |
 | `thumbs` | `Thumbs` — touch controls for a phone game: the first finger down anywhere is a stick, any other tap is an activation, and a few reserved areas (a map button) take their own taps |
 | `tween` | `Animated` — a value that moves towards a target over time: the tween, held by whatever owns the value |
+| `video` | `VideoWriter` — a plan's `record` clip, encoded as it is drawn |
 | `viewer` | `Viewer` — a window for reviewing a game's sprites by eye, moving: one sprite looping large and at real size against guides, a crowd of its clones each on its own phase, and keys to tune the gait and body live and print the lines to paste back |
 | `wall` | `Wall` — square tiles packed densely by priority, that shuffle with easing when the priorities change |
 | `wallet_connection` | `Connection` — one wallet connection's lifecycle as a state machine, the same on every chain: asked, answered, refused, failed, let go |
 | `wallet_modal` | `WalletModal` — a wallet connector a game opens from one button: which chain, which wallet, then what the wallet answered, on one card that glides between the steps |
-| `web` | `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone), shipped with the kit and stamped by a game's `build.rs` |
+| `web` | `web` — the miniquad JS plugins the kit's `audio`, `gamepads` and `discord-auth` features need in the page, and the kit's own page scripts (fullscreen on a phone, the app shell's page half), shipped with the kit and stamped by a client's `build.rs` |

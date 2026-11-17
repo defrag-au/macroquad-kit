@@ -40,7 +40,9 @@
 //! [`cart_button`] is the control that opens it: a pill with the count.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
 use macroquad_widgets::painter::with_alpha;
+use macroquad_widgets::shape::draw_circle;
 use macroquad_widgets::{
     Align, Painter, Pill, Scroll, ScrollInput, Sheet, SheetForm, SheetState, TextSize, WellRow,
     draw_rounded_rect, sheet_card, sheet_chrome, well, well_height,

@@ -176,6 +176,9 @@ impl Toasts {
             let rect = Rect::new(left, y - TOAST_H + rise, w, TOAST_H);
             let alpha = shown;
             fill_rounded(rect, 12.0, with_alpha(c.bg_highlight, 0.97 * alpha));
+            // The page's text under a toast is behind it, for text the browser
+            // draws and for the text report.
+            macroquad_gamekit::text::dom::cover(rect, alpha);
             let edge = match t.tone {
                 Tone::Info => c.accent_blue,
                 Tone::Success => c.success,

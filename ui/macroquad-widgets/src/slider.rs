@@ -26,6 +26,8 @@
 //! [`crate::Gesture::drag`] in alongside.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use crate::shape::draw_circle;
 use ui_theme::TextSize;
 
 use crate::{Painter, draw_rounded_rect, painter::with_alpha};

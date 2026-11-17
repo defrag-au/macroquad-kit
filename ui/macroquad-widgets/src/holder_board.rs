@@ -288,9 +288,7 @@ pub fn holder_board(p: &Painter, vm: &HolderBoardVm, area: Rect) {
         let locked = row
             .holding
             .split
-            .map_or(0.0, |s| {
-                s.vested / position.max(f64::MIN_POSITIVE)
-            })
+            .map_or(0.0, |s| s.vested / position.max(f64::MIN_POSITIVE))
             .clamp(0.0, 1.0) as f32;
         let free_w = w * (1.0 - locked);
         if free_w > 0.5 {

@@ -25,6 +25,8 @@
 use std::f32::consts::TAU;
 
 use macroquad::prelude::*;
+// The exact discs, rings and arcs: explicit imports shadow the prelude's.
+use crate::shape::{draw_arc, draw_circle, draw_circle_lines};
 
 use crate::Painter;
 use crate::theme::with_alpha;

@@ -68,3 +68,11 @@ statig = { workspace = true }
 gamepads = { version = "0.1.7", default-features = false, optional = true }
 # The session logic, and its miniquad edge: no wasm-bindgen in its tree.
 discord-auth = { workspace = true, features = ["miniquad"], optional = true }
+
+# A reel (`reel`) places a game's own art, and art ships as JPEG, but macroquad's `image`
+# decodes PNG and TGA only. Turning on `jpeg` for that same `image` 0.24 lets
+# `Image::from_file_with_format` read it: features unify, so this adds a decoder (pure Rust,
+# `jpeg-decoder`) and no second image crate. Native only, as reels are; the web build decodes
+# through the browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+image = { version = "0.24", default-features = false, features = ["jpeg"] }

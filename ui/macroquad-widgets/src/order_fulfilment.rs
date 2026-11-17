@@ -10,6 +10,8 @@
 //! [`OrderFulfilmentVm`], and the widget returns a [`FulfilmentAction`] on tap.
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use crate::shape::draw_circle;
 use ui_theme::{TextSize, Token};
 
 use crate::painter::Painter;

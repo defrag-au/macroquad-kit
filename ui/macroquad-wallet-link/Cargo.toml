@@ -49,6 +49,8 @@ serde_json = { workspace = true }
 # Their `PLUGIN_JS`, stamped into `web/` for the app's page.
 wallet-miniquad = { workspace = true }
 miniquad-platform = { workspace = true }
-macroquad-app = { workspace = true }
+# `PageScript::AppShell` and `stamp_scripts`: the app shell's page half, stamped
+# without compiling `macroquad-app` (and its native HTTP stack) for the host.
+macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }
 # The session plugin, the same file the kit stamps as `Plugin::DiscordAuth`.
 discord-auth = { workspace = true, features = ["miniquad"] }

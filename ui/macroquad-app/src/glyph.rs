@@ -9,6 +9,8 @@
 use std::f32::consts::PI;
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use macroquad_widgets::{draw_circle, draw_circle_lines};
 use macroquad_widgets::{fill_rounded, stroke_rounded};
 
 /// See the [module docs](self).

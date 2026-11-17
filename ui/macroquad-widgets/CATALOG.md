@@ -8,7 +8,7 @@ Regenerate: `UPDATE_CATALOG=1 cargo test -p macroquad-widgets --test catalog`
 Note: these are MACROQUAD widgets. They cannot use wasm-bindgen, so they do not
 interchange with `egui-widgets` — see the shared-crates CLAUDE.md on runtime pairs.
 
-38 widgets.
+39 widgets.
 
 | module | what it is |
 |---|---|
@@ -19,6 +19,7 @@ interchange with `egui-widgets` — see the shared-crates CLAUDE.md on runtime p
 | `callout` | `Callout` — one sentence about what just happened, in the colour that says how it went, with an optional action at its end |
 | `change_chip` | `ChangeChip` — a price's change as an arrow and a signed percentage, with the stretch it is measured over under it |
 | `choice_stepper` | `ChoiceStepper` molecule — `LABEL  [‹] value [›]`, for picking one of a list too long for a row of buttons |
+| `cursor` | The mouse cursor over something that can be pressed: a pointer, as the web shows one |
 | `detail_sheet` | `DetailSheet` — the detail behind a headline, out of the way until asked for: a modal on a wide screen, a sheet sliding up from the bottom on a phone |
 | `feed` | `Feed` — a stack of activity rows, newest on top: a chip for what happened, who or what it was, the amount and the time, and the newest row sliding in |
 | `floating_stick` | `FloatingStick` — a thumbstick that appears where the thumb lands, for touch surfaces with no keyboard |

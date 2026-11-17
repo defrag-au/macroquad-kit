@@ -121,4 +121,37 @@ mod tests {
         assert!(render("<resources />", "a.b").is_err());
         assert!(render("<manifest", "a.b").is_err());
     }
+
+    /// The example shipped for app authors is a real manifest: the packager
+    /// renders it, it names everything miniquad needs, and it references no
+    /// app resources, so `--no-art` packages it.
+    #[test]
+    fn the_shipped_example_manifest_renders() {
+        let source = include_str!("../android/AndroidManifest.example.xml");
+        let out = render(source, "au.defrag.example").expect("the example renders");
+        // The placeholder is substituted in the <manifest> tag, and the comment
+        // that quotes it is left alone.
+        let tag = out
+            .split_once("<manifest")
+            .and_then(|(_, rest)| rest.split_once('>'))
+            .map(|(tag, _)| tag)
+            .expect("a <manifest> tag");
+        assert!(tag.contains("package=\"au.defrag.example\""), "{tag}");
+        assert!(!tag.contains("${package}"), "{tag}");
+        for required in [
+            "android:name=\".MainActivity\"",
+            "android.intent.category.LAUNCHER",
+            "android.permission.INTERNET",
+            "android:glEsVersion=\"0x00020000\"",
+            "android:configChanges=",
+        ] {
+            assert!(out.contains(required), "the example lacks {required}");
+        }
+        for resource in ["@mipmap", "@drawable", "@string"] {
+            assert!(
+                !out.contains(resource),
+                "the example references {resource}, so --no-art would fail at aapt2 link"
+            );
+        }
+    }
 }

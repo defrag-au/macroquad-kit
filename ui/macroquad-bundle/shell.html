@@ -10,12 +10,16 @@
 
   Tokens:
     __TITLE__    document title (HTML-escaped)
-    __SCRIPTS__  every <script src> tag in load order: gl.js, sapp_jsutils.js,
-                 quad-net.js when imported, then the crate's own plugins
+    __SCRIPTS__  the <script src> tag for `runtime.<hash>.js`, which runs gl.js,
+                 sapp_jsutils.js, quad-net.js when imported, then the crate's
+                 own plugins, in that order
     __WASM__     wasm path, with its cache-busting query already appended
     __MANIFEST__ (optional) the <link rel="manifest"> for the bundle's
                  manifest.webmanifest, which makes a home-screen launch
                  fullscreen
+    __HEAD__     (optional) the page's social card: the description, Open
+                 Graph and Twitter tags a shared link is previewed from, from
+                 the crate's [package.metadata.mq-bundle]. Empty without one.
 
   Everything here was learned the hard way in an embedded iframe. Before
   removing any of it, read the comment saying why it exists.
@@ -37,6 +41,7 @@
   <meta name="apple-mobile-web-app-title" content="__TITLE__">
   <meta name="theme-color" content="#050510">
 __MANIFEST__
+__HEAD__
   <style>
     /* Reset + viewport-fill — macroquad's recommended shell. */
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,12 +69,88 @@ __MANIFEST__
       z-index: 1000; pointer-events: none;
     }
     #boot.hidden { display: none; }
-    #boot.failed { color: #fb7185; }
+
+    /* A failure is for the person holding the phone, not for devtools: what
+       happened in a sentence, one way out (Reload), and the raw text folded
+       away underneath for a screenshot to carry to us. `pointer-events` is
+       back on so the button can be pressed; the canvas behind is dead anyway. */
+    #boot.failed { pointer-events: auto; overflow-y: auto; align-items: flex-start; }
+    #boot .card {
+      margin: max(48px, env(safe-area-inset-top)) auto 24px; max-width: 420px; width: 100%;
+      padding: 24px; border: 1px solid #2a2f3a; border-radius: 12px; background: #0b0d18;
+      color: #d7dbe3; text-align: left;
+    }
+    #boot h1 { font-size: 18px; margin-bottom: 8px; color: #fb7185; }
+    #boot p { margin-bottom: 20px; }
+    #boot button {
+      display: block; width: 100%; min-height: 48px; border: 0; border-radius: 8px;
+      background: #f2c14e; color: #050510; font: inherit; font-size: 16px; font-weight: 600;
+      cursor: pointer;
+    }
+    #boot button:focus-visible { outline: 3px solid #ffffff; outline-offset: 2px; }
+    #boot details { margin-top: 20px; color: #8b93a1; }
+    #boot summary { cursor: pointer; min-height: 32px; }
+    #boot pre {
+      margin-top: 8px; white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+    }
   </style>
 </head>
 <body>
-  <div id="boot">loading…</div>
+  <div id="boot" role="status">loading…</div>
+  <noscript>
+    <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#d7dbe3;font-family:system-ui,sans-serif;background:#050510;z-index:1001">
+      This app needs JavaScript turned on.
+    </div>
+  </noscript>
   <canvas id="glcanvas" tabindex="1"></canvas>
+
+  <script>
+    // The failure card. One place draws it, whatever failed: no WebGL, a bad
+    // boot, a Rust panic, a lost GL context. `__mq_fail` takes a title, a
+    // sentence and optional raw details, and replaces whatever the panel showed;
+    // the first failure's details are the useful ones, so a later one keeps them.
+    //
+    // A page that has died is a page someone is stuck on, usually on a phone
+    // with no devtools: say so plainly, offer Reload (the app restores its
+    // session from storage), and keep the raw lines for a screenshot.
+    (function () {
+      var shown = null;
+      window.__mq_fail = function (title, text, details) {
+        var boot = document.getElementById("boot");
+        if (shown) details = details ? shown + "\n\nthen: " + details : shown;
+        shown = details || null;
+        boot.className = "failed";
+        boot.setAttribute("role", "alert");
+        boot.textContent = "";
+        var card = document.createElement("div");
+        card.className = "card";
+        var h = document.createElement("h1");
+        h.textContent = title;
+        var p = document.createElement("p");
+        p.textContent = text;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Reload";
+        button.addEventListener("click", function () { window.location.reload(); });
+        card.appendChild(h);
+        card.appendChild(p);
+        card.appendChild(button);
+        if (details) {
+          var more = document.createElement("details");
+          var summary = document.createElement("summary");
+          summary.textContent = "Details for a bug report";
+          var pre = document.createElement("pre");
+          pre.textContent = details;
+          more.appendChild(summary);
+          more.appendChild(pre);
+          card.appendChild(more);
+        }
+        boot.appendChild(card);
+        button.focus();
+      };
+    })();
+  </script>
 
   <script>
     // Acquire the WebGL context BEFORE gl.js loads, and say so if it fails.
@@ -97,12 +178,62 @@ __MANIFEST__
       };
       var gl = canvas.getContext("webgl", opts) || canvas.getContext("experimental-webgl", opts);
       if (!gl) {
-        var boot = document.getElementById("boot");
-        boot.textContent = "WebGL is unavailable in this view — this app can't render here.";
-        boot.className = "failed";
+        window.__mq_fail(
+          "This browser can't draw the app",
+          "It needs WebGL, which is turned off or unavailable here. Try opening the link in " +
+            "your phone's main browser (Chrome or Safari).",
+          "WebGL context unavailable · " + navigator.userAgent
+        );
         console.error("shell: WebGL context unavailable");
         window.__mq_no_gl = true;
+        return;
       }
+
+      // A phone may throw away a backgrounded tab's GL context, and the wallet
+      // handoff sends people to another app and back. miniquad cannot rebuild
+      // its textures and buffers on a new context, so a lost one is a dead
+      // canvas: reload. Lost while hidden, the reload happens on return, once
+      // per half-minute so a context that keeps dying cannot loop the page.
+      var lostWhileHidden = false;
+      var reloadOnce = function () {
+        // Storage can be refused in a sandboxed frame; then never auto-reload.
+        try {
+          var key = "mq_context_reload";
+          var last = Number(sessionStorage.getItem(key) || 0);
+          if (Date.now() - last < 30000) return false;
+          sessionStorage.setItem(key, String(Date.now()));
+        } catch (err) {
+          return false;
+        }
+        window.location.reload();
+        return true;
+      };
+      canvas.addEventListener("webglcontextlost", function (e) {
+        // Asking to restore is harmless; miniquad cannot use it, the reload can.
+        e.preventDefault();
+        console.warn("shell: WebGL context lost");
+        if (document.hidden) {
+          lostWhileHidden = true;
+        } else if (!reloadOnce()) {
+          window.__mq_fail(
+            "The display was reset",
+            "Your browser reset the app's graphics. Reload to carry on.",
+            "webglcontextlost while visible"
+          );
+        }
+      });
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden || !lostWhileHidden) return;
+        lostWhileHidden = false;
+        if (!reloadOnce()) {
+          window.__mq_fail(
+            "The display was reset",
+            "Your browser reset the app's graphics while it was in the background. " +
+              "Reload to carry on.",
+            "webglcontextlost while hidden"
+          );
+        }
+      });
     })();
   </script>
 
@@ -112,6 +243,11 @@ __MANIFEST__
       2. sapp_jsutils.js  — defines js_object() / consume_js_object()
       3. plugins          — quad-net, then each crate's own (stamped by build.rs)
       4. load(<wasm>)     — instantiate
+
+    1–3 arrive as ONE tag, `runtime.<hash>.js`, named by its content: it runs
+    each script as its own <script>, in this order (macroquad-bundle's
+    runtime.rs). A new build is a new name, so a cached script never meets
+    another build's wasm; only this page must be fetched fresh.
 
     Paths are relative unless the bundle was made with `--base`: Discord's
     proxy serves a bundle at its mapped path, so `gl.js` resolves beside the
@@ -136,14 +272,12 @@ __SCRIPTS__
     (function () {
       var recent = [];
       var showPanel = function (text) {
-        var boot = document.getElementById("boot");
-        boot.textContent = text;
-        boot.className = "failed";
-        boot.style.whiteSpace = "pre-wrap";
-        boot.style.fontFamily = "ui-monospace, Menlo, monospace";
-        boot.style.fontSize = "12px";
-        boot.style.textAlign = "left";
-        boot.style.alignItems = "flex-start";
+        window.__mq_fail(
+          "Something went wrong",
+          "The app hit an error and stopped. Reloading usually fixes it. If it keeps " +
+            "happening, a screenshot of the details below helps us find it.",
+          text
+        );
       };
       var wrap = function (name) {
         var orig = console[name].bind(console);
@@ -155,7 +289,7 @@ __SCRIPTS__
           if (recent.length > 8) recent.shift();
           // miniquad formats the hook as `PanicInfo { ... }` / `panicked at`;
           // Rust's default hook says `panicked at`. Either is the signal.
-          if (/panicked at|PanicInfo|PanicHookInfo/.test(line)) {
+          if (!window.__mq_panic && /panicked at|PanicInfo|PanicHookInfo/.test(line)) {
             window.__mq_panic = line;
             showPanel("rust panic:\n\n" + recent.join("\n"));
           }
@@ -171,21 +305,30 @@ __SCRIPTS__
       // Surface a failed instantiate on the boot panel too — otherwise a
       // missing import or a bad wasm is only visible in devtools, which an
       // embedded iframe doesn't readily offer.
-      window.addEventListener("error", function (e) {
+      // Either kind of uncaught error is treated as fatal: one thrown through
+      // the wasm leaves miniquad's event handler borrowed, so every later event
+      // fails too, and a page that looks alive but ignores taps is worse than
+      // one that says it stopped.
+      var fatal = function (what) {
         // A panic already wrote its message; `unreachable` is just the abort
-        // that follows it, and would overwrite the useful line with a useless one.
+        // that follows it, and would bury the useful line under a useless one.
         if (window.__mq_panic) return;
-        var boot = document.getElementById("boot");
         var tail = (window.__mq_recent_console || []).slice(-4).join("\n");
-        boot.textContent = "boot error: " + (e.message || e.error || "unknown") +
-          (tail ? "\n\nlast console lines:\n" + tail : "");
-        boot.className = "failed";
-        boot.style.whiteSpace = "pre-wrap";
+        window.__mq_fail(
+          "Something went wrong",
+          "The app hit an error and stopped. Reloading usually fixes it. If it keeps " +
+            "happening, a screenshot of the details below helps us find it.",
+          "error: " + what + (tail ? "\n\nlast console lines:\n" + tail : "")
+        );
+      };
+      window.addEventListener("error", function (e) {
+        // A failed <img> or <script> load bubbles here too, with no message;
+        // that is not the app stopping.
+        if (e.target && e.target !== window) return;
+        fatal(e.message || (e.error && e.error.message) || "unknown");
       });
       window.addEventListener("unhandledrejection", function (e) {
-        var boot = document.getElementById("boot");
-        boot.textContent = "boot error: " + (e.reason && e.reason.message ? e.reason.message : String(e.reason));
-        boot.className = "failed";
+        fatal(e.reason && e.reason.message ? e.reason.message : String(e.reason));
       });
       load("__WASM__");
     }

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A minimal phone manifest for `macroquad-apk`. Copy it to
+  `android/AndroidManifest.xml` in the app's crate (the packager's default
+  `--manifest`), replace `Example` with the app's name, and leave the rest
+  alone unless the app needs more.
+
+  `package="${package}"` is substituted from `--package`; a literal package
+  name works too, and is refused if it disagrees. The activity is miniquad's
+  own, compiled into this package by the packager, and it starts the app
+  through `quad_main`.
+
+  `--no-art` packages no resources, so this file must reference none: the
+  label is a literal, the theme is a framework style, and there is no icon or
+  banner. `--icon`/`--banner` add those resources and the attributes that name
+  them, for a store listing.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        package="${package}"
+        android:versionCode="1"
+        android:versionName="0.1.0">
+    <!-- `macroquad-app`'s http/Fetch, and anything else the app reads over the
+         network. Without it a request fails on the page's side with no useful
+         error. Remove it only if the app makes no network calls at all. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+    <!-- Fullscreen, because the app draws its own app bar and navigation. -->
+    <application android:hasCode="true" android:label="Example"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <activity android:name=".MainActivity"
+                android:label="Example"
+                android:exported="true"
+                android:configChanges="orientation|keyboardHidden|screenSize|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

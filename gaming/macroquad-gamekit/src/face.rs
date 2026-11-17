@@ -13,11 +13,13 @@
 //! the screen) and so should not be drawn and reported.
 
 use macroquad::prelude::*;
+// The exact discs, rings and arcs: explicit imports shadow the prelude's.
+use macroquad_widgets::shape::{draw_arc, draw_circle, draw_circle_lines};
 
 use crate::icon::{Icon, draw_icon};
 use crate::paint::{Gradient, bevel, fill_circle_gradient, fill_gradient};
 use crate::shape::{fill_rounded, stroke_rounded};
-use macroquad_text::{Align, Measure, MeasureAt, RichText, TextStyle};
+use macroquad_text::{Align, Measure, MeasureAt, RichText, TextStyle, report};
 
 fn with_alpha(c: Color, a: f32) -> Color {
     Color::new(c.r, c.g, c.b, c.a * a)
@@ -50,9 +52,14 @@ pub fn shrink_to_fit(
     px: f32,
 ) -> (String, f32) {
     let m = MeasureAt(px);
-    fit_with(s, (max, min), width, |text, size| {
+    let (text, size) = fit_with(s, (max, min), width, |text, size| {
         m.width(text, &TextStyle::new(font.cloned(), size, WHITE))
-    })
+    });
+    // A cut the kit made, not a symptom a report should flag.
+    if text != s {
+        report::fitted(&text);
+    }
+    (text, size)
 }
 
 /// [`shrink_to_fit`] with the measuring passed in, so the choice of size and

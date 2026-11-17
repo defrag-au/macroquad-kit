@@ -1,0 +1,22 @@
+version = 1
+name = "macroquad-kit-linux-check"
+
+# The Linux side of the storybook's visual goldens, in a container with no
+# display server.
+#
+# A one-shot job, not a service: `restart = "no"` lets `up -d` return, and the
+# script's output under `.tmp/linux-check/` is the result.
+#
+# One mount: this repository, at `/work/macroquad-kit`. The kit's `[patch]`
+# lines are git URLs, so no sibling checkout is needed. The first run needs the
+# git dependencies in `CARGO_HOME`; seed it from the host first (see README.md).
+[services.check]
+image = "docker.io/library/rust:1.99-bookworm"
+pull = "missing"
+command = ["/bin/sh", "/work/macroquad-kit/.stacks/linux-check/visual-linux.sh"]
+workdir = "/work/macroquad-kit"
+env = { CARGO_TERM_COLOR = "never", LIBGL_ALWAYS_SOFTWARE = "1" }
+volumes = ["../..:/work/macroquad-kit"]
+cpus = 4
+memory = "8G"
+restart = "no"

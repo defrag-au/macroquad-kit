@@ -5,7 +5,11 @@
 //! Pattern (mirrors `egui-widgets`): host projects a VM → widget renders →
 //! widget returns actions → host dispatches. No async, no I/O, no backend deps.
 
+pub mod cursor;
 pub mod painter;
+/// The distance-field renderer behind [`shape`] and [`draw_rounded_rect`].
+/// Private: one door per shape, so new code cannot reach for the old look.
+mod sdf;
 pub mod shape;
 pub mod theme;
 
@@ -92,7 +96,8 @@ pub use choice_stepper::{ChoiceStepperVm, choice_stepper};
 pub use detail_sheet::{
     BOTTOM_SHEET_BELOW, DetailRow, DetailSheetVm, RowTone, SHEET_SIDE_INSET, Sheet, SheetCard,
     SheetForm, SheetResponse, SheetState, detail_sheet, info_button, sheet_card, sheet_chrome,
-    sheet_close, sheet_content_width, sheet_rect, sheet_surface,
+    sheet_close, sheet_content_width, sheet_content_width_within, sheet_rect, sheet_rect_within,
+    sheet_surface,
 };
 pub use floating_stick::{
     Cardinal, FloatingStick, Release, StickFrame, StickView, floating_stick,
@@ -125,7 +130,10 @@ pub use scroll::{
     NOTCH_POINTS, Scroll, ScrollAxis, ScrollInput, WHEEL_IN_POINTS, wheel_points, wheel_points_on,
 };
 pub use segmented::{pill_rects, segmented, segmented_pills};
-pub use shape::{Gradient, fill_gradient, fill_rounded, fill_texture_rounded, stroke_rounded};
+pub use shape::{
+    Gradient, draw_arc, draw_circle, draw_circle_lines, fill_gradient, fill_rounded,
+    fill_texture_rounded, stroke_rounded,
+};
 pub use slider::{AmountSliderVm, SliderStop, amount_slider};
 pub use spinner::Spinner;
 pub use squad_picker::{

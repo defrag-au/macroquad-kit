@@ -36,6 +36,8 @@
 //! the sheet then closes is the host's call (a cart mid-signature might not).
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use crate::shape::{draw_circle, draw_circle_lines};
 use ui_theme::TextSize;
 
 use crate::painter::with_alpha;
@@ -120,6 +122,10 @@ pub struct Sheet<'a> {
     pub closable: bool,
     /// Keep [`SheetCard::footer`] for the sheet's actions.
     pub footer: bool,
+    /// The widest the card may be, in either form, when it is not the default: a
+    /// sheet a reader reads (a guide, a long note) wants a page's measure, wider
+    /// than a detail card's. `None`: the form's own cap.
+    pub max_w: Option<f32>,
 }
 
 impl<'a> Sheet<'a> {
@@ -130,7 +136,14 @@ impl<'a> Sheet<'a> {
             tint: None,
             closable: true,
             footer: true,
+            max_w: None,
         }
+    }
+
+    /// Let the card grow to `width` (still inside the area's padding).
+    pub const fn max_width(mut self, width: f32) -> Self {
+        self.max_w = Some(width);
+        self
     }
 
     pub const fn title(mut self, title: &'a str) -> Self {
@@ -368,6 +381,9 @@ pub fn sheet_surface(p: &Painter, area: Rect, rect: Rect, form: SheetForm, e: f3
         area.h,
         with_alpha(c.bg_primary, 0.74 * e),
     );
+    // Text drawn before the sheet is behind it: dimmed by the scrim, and hidden
+    // under the card, for text the browser draws and for the text report.
+    macroquad_text::dom::cover(area, 0.74 * e);
     // The bottom corners of a sheet are pushed off the edge, so it reads as
     // rising out of it rather than floating above it.
     let shape = match form {
@@ -375,6 +391,7 @@ pub fn sheet_surface(p: &Painter, area: Rect, rect: Rect, form: SheetForm, e: f3
         SheetForm::Bottom => Rect::new(rect.x, rect.y, rect.w, rect.h + RADIUS),
     };
     let a = if form == SheetForm::Modal { e } else { 1.0 };
+    macroquad_text::dom::cover(shape, a);
     // One shadow plate: overlapping translucent plates stack into a halo.
     fill_rounded(
         Rect::new(shape.x + 2.0, shape.y + 10.0, shape.w - 4.0, shape.h),
@@ -455,7 +472,7 @@ pub fn sheet_card(
     let c = &painter.theme.color;
     let e = state.progress();
     let form = SheetForm::for_area(area);
-    let rect = sheet_rect(form, area, height, e);
+    let rect = sheet_rect_within(form, area, height, e, sheet.max_w);
     let k = density(area);
     let tint = sheet.tint.unwrap_or(c.accent);
     sheet_surface(painter, area, rect, form, e, tint);
@@ -556,17 +573,28 @@ fn detail_chrome(title: &str) -> Sheet<'_> {
 /// A bottom sheet slides up from below the edge; a modal settles down a few
 /// points into the centre as it fades in.
 pub fn sheet_rect(form: SheetForm, area: Rect, height: f32, progress: f32) -> Rect {
+    sheet_rect_within(form, area, height, progress, None)
+}
+
+/// [`sheet_rect`] for a sheet with its own [`Sheet::max_w`].
+pub fn sheet_rect_within(
+    form: SheetForm,
+    area: Rect,
+    height: f32,
+    progress: f32,
+    max_w: Option<f32>,
+) -> Rect {
     let p = progress.clamp(0.0, 1.0);
     match form {
         SheetForm::Bottom => {
-            let w = (area.w - SHEET_SIDE_INSET * 2.0).min(SHEET_MAX_W);
+            let w = (area.w - SHEET_SIDE_INSET * 2.0).min(max_w.unwrap_or(SHEET_MAX_W));
             let h = height.min(area.h);
             let x = area.x + (area.w - w) * 0.5;
             let y = area.bottom() - h * p;
             Rect::new(x, y, w, h)
         }
         SheetForm::Modal => {
-            let w = (area.w - PAD * 2.0).min(MODAL_MAX_W);
+            let w = (area.w - PAD * 2.0).min(max_w.unwrap_or(MODAL_MAX_W));
             let h = height.min(area.h - PAD * 2.0);
             let x = area.x + (area.w - w) * 0.5;
             let y = area.y + (area.h - h) * 0.5 + SETTLE_PX * (1.0 - p);
@@ -581,7 +609,12 @@ pub fn sheet_rect(form: SheetForm, area: Rect, height: f32, progress: f32) -> Re
 /// Enough for a caller to choose its own layout — one column or two — and then
 /// size the card in a single pass, instead of guessing at the card's padding.
 pub fn sheet_content_width(form: SheetForm, area: Rect) -> f32 {
-    sheet_rect(form, area, 0.0, 1.0).w - PAD * 2.0
+    sheet_content_width_within(form, area, None)
+}
+
+/// [`sheet_content_width`] for a sheet with its own [`Sheet::max_w`].
+pub fn sheet_content_width_within(form: SheetForm, area: Rect, max_w: Option<f32>) -> f32 {
+    sheet_rect_within(form, area, 0.0, 1.0, max_w).w - PAD * 2.0
 }
 
 /// A circled `i` centred at `at`. Returns true when tapped.
@@ -716,6 +749,21 @@ mod tests {
         assert_eq!(open.w, MODAL_MAX_W);
         assert!((open.center().x - DESK.center().x).abs() < 0.01);
         assert!((open.center().y - DESK.center().y).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_sheet_may_ask_for_a_reading_width_and_still_fits_the_area() {
+        let wide = Sheet::new().max_width(680.0);
+        let open = sheet_rect_within(SheetForm::Modal, DESK, 300.0, 1.0, wide.max_w);
+        assert_eq!(open.w, 680.0);
+        assert!((open.center().x - DESK.center().x).abs() < 0.01);
+        // On a phone the area still wins: never wider than the screen less its inset.
+        let phone = sheet_rect_within(SheetForm::Bottom, PHONE, 300.0, 1.0, wide.max_w);
+        assert_eq!(phone.w, PHONE.w - SHEET_SIDE_INSET * 2.0);
+        assert_eq!(
+            sheet_content_width_within(SheetForm::Modal, DESK, wide.max_w),
+            680.0 - PAD * 2.0
+        );
     }
 
     #[test]

@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
     types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      bless_goldens:
+        description: Write the x86_64 Linux goldens and upload them
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -113,6 +119,10 @@ jobs:
   # sets are checked locally by the same test. Two threads run the two
   # per-story sweeps together without putting four llvmpipe contexts on four
   # cores.
+  #
+  # A `workflow_dispatch` with `bless_goldens` writes this set instead of
+  # checking it and uploads it; that is the only supported way to regenerate
+  # the x86_64 goldens, because this runner's Mesa is the contract.
   visual:
     name: Visual Goldens
     # Pinned to the release the x86_64 goldens were blessed on: the renderer
@@ -140,7 +150,18 @@ jobs:
       - name: Check the Linux goldens
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
+          # A dispatch with `bless_goldens` writes the goldens instead of
+          # checking them. Empty means check; the reader treats it as unset.
+          UPDATE_GOLDENS: ${{ github.event_name == 'workflow_dispatch' && inputs.bless_goldens && '1' || '' }}
         run: cargo test -p macroquad-storybook --test visual -- --test-threads=2
+
+      - name: Upload the blessed goldens
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless_goldens }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldens-x86_64
+          path: ui/macroquad-storybook/tests/goldens-x86_64
+          if-no-files-found: error
 
       - name: Upload the visual captures
         if: failure()

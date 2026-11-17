@@ -1,0 +1,407 @@
+//! A reel at one moment: which shot is showing, each item's pose, and how far through a cut it
+//! is.
+//!
+//! Pure, and exact at any frame. Nothing is stepped: an item's pose at `t` is its placement with
+//! every action due by `t` folded over it, in time order. A still at 18.5 s is the frame the video
+//! has at 18.5 s, and scrubbing backwards is as cheap as forwards.
+
+use super::file::{Action, Cut, Delta, Item, PULSE_FROM, PULSE_TO, Reel, Rgba, Shot, Verb};
+use crate::ease::Ease;
+
+/// How long a cut's colour takes to rise over the end of the shot before it.
+pub const CUT_LEAD: f32 = 0.1;
+
+/// What the reel draws at one moment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene<'a> {
+    /// The shot showing, by index.
+    pub shot: usize,
+    /// Seconds into that shot.
+    pub local: f32,
+    /// The shot's game viewport in points, if it has a game.
+    pub game: Option<(u32, u32)>,
+    /// The items showing, back first, each in its pose now.
+    pub layers: Vec<Layer<'a>>,
+    /// A cut's colour over everything, at its alpha now, if a cut is under way.
+    pub veil: Option<Rgba>,
+}
+
+/// One item, posed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Layer<'a> {
+    pub item: &'a Item,
+    /// Its own change from where it was placed.
+    pub pose: Delta,
+    /// Its parents and their own poses, outermost first: it is moved by each in turn, about
+    /// each one's centre, so text placed on a phone turns with the phone.
+    pub parents: Vec<(&'a Item, Delta)>,
+    /// How opaque it is drawn: its own alpha times its parents'.
+    pub alpha: f32,
+    /// Whether it is at rest: no action of its own or its parents' is under way. An item
+    /// slamming in or sliding out passes through places it does not stay, and the safe-area
+    /// check is about where text rests.
+    pub motion: Motion,
+}
+
+/// Whether an item is at rest or on its way somewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    Resting,
+    /// An enter, exit, move or pulse of its own or a parent's is under way.
+    Moving,
+}
+
+/// Which shot is showing at `t` seconds, and how far into it. Past the end, the last shot's
+/// last moment.
+pub fn moment(reel: &Reel, t: f32) -> (usize, f32) {
+    let mut start = 0.0;
+    for (i, shot) in reel.shots.iter().enumerate() {
+        if t < start + shot.seconds {
+            return (i, (t - start).max(0.0));
+        }
+        start += shot.seconds;
+    }
+    let last = reel.shots.len().saturating_sub(1);
+    (last, reel.shots.get(last).map_or(0.0, |s| s.seconds))
+}
+
+/// The time of output frame `frame`.
+pub fn time_of(reel: &Reel, frame: u32) -> f32 {
+    frame as f32 / reel.fps as f32
+}
+
+/// The reel at `t` seconds.
+pub fn scene(reel: &Reel, t: f32) -> Scene<'_> {
+    let (index, local) = moment(reel, t);
+    let shot = &reel.shots[index];
+    let layers = shot
+        .items
+        .iter()
+        .filter_map(|item| {
+            let pose = own_pose(shot, item, local)?;
+            let parents = parents(shot, item, local)?;
+            let alpha = parents
+                .iter()
+                .fold(pose.alpha, |a, (_, p)| a * p.alpha)
+                .clamp(0.0, 1.0);
+            let moving = std::iter::once(item)
+                .chain(parents.iter().map(|(p, _)| *p))
+                .filter_map(|i| i.name.as_deref())
+                .any(|name| under_way(&shot.actions, name, local));
+            (alpha > 0.0).then_some(Layer {
+                item,
+                pose,
+                parents,
+                alpha,
+                motion: if moving {
+                    Motion::Moving
+                } else {
+                    Motion::Resting
+                },
+            })
+        })
+        .collect();
+    Scene {
+        shot: index,
+        local,
+        game: shot.game.as_ref().map(|g| g.size),
+        layers,
+        veil: veil(reel, index, local),
+    }
+}
+
+/// An item's own pose at `t`, or `None` while it is not showing. An unnamed item cannot be acted
+/// on, so it stands as placed.
+fn own_pose(shot: &Shot, item: &Item, t: f32) -> Option<Delta> {
+    match &item.name {
+        Some(name) => pose(&shot.actions, name, t),
+        None => Some(Delta::NONE),
+    }
+}
+
+/// An item's parents with their own poses at `t`, outermost first; `None` while any of them is
+/// not showing, which hides the item too.
+fn parents<'a>(shot: &'a Shot, item: &Item, t: f32) -> Option<Vec<(&'a Item, Delta)>> {
+    let mut chain = Vec::new();
+    let mut next = item.parent.as_deref();
+    while let Some(name) = next {
+        // A cycle of parents is a mistake the parser does not look for; stop rather than loop.
+        if chain.len() > 16 {
+            break;
+        }
+        let parent = shot
+            .items
+            .iter()
+            .find(|i| i.name.as_deref() == Some(name))?;
+        chain.push((parent, own_pose(shot, parent, t)?));
+        next = parent.parent.as_deref();
+    }
+    chain.reverse();
+    Some(chain)
+}
+
+/// An item's own pose at `t`: `None` while it is not showing.
+///
+/// It shows from the start, unless its first coming-or-going action is an `enter` or a `show`.
+/// Each action due by `t` then changes it, in time order: an `enter` arrives from its preset's
+/// pose, an `exit` leaves to it (and the item is gone once it has), a `move` adds its share.
+pub fn pose(actions: &[Action], name: &str, t: f32) -> Option<Delta> {
+    let mine = || actions.iter().filter(move |a| a.item == name);
+    let arrives = mine()
+        .find(|a| !matches!(a.verb, Verb::Move { .. }))
+        .is_some_and(|a| matches!(a.verb, Verb::Enter { .. } | Verb::Show | Verb::Pulse { .. }));
+    let mut showing = !arrives;
+    let mut delta = Delta::NONE;
+    for action in mine().take_while(|a| a.at <= t) {
+        let since = t - action.at;
+        match action.verb {
+            Verb::Show => showing = true,
+            Verb::Hide => showing = false,
+            Verb::Enter { preset, seconds } => {
+                showing = true;
+                let left = 1.0 - preset.ease().apply(progress(since, seconds));
+                delta = delta.then(preset.away().part(left));
+            }
+            Verb::Exit { preset, seconds } => {
+                if since >= seconds {
+                    showing = false;
+                } else {
+                    let gone = Ease::QuadIn.apply(progress(since, seconds));
+                    delta = delta.then(preset.away().part(gone));
+                }
+            }
+            Verb::Move {
+                seconds,
+                by,
+                ease,
+                yoyo,
+            } => delta = delta.then(by.part(there(since, seconds, ease, yoyo))),
+            // The game's business, not a pose: the run hands it to the game.
+            Verb::Set(_) => {}
+            Verb::Pulse { seconds } => {
+                showing = since < seconds;
+                let p = progress(since, seconds);
+                let swell = Ease::QuadOut.apply(p);
+                delta = delta.then(Delta {
+                    scale: PULSE_FROM + (PULSE_TO - PULSE_FROM) * swell,
+                    alpha: 1.0 - p,
+                    ..Delta::NONE
+                });
+            }
+        }
+    }
+    showing.then_some(delta)
+}
+
+/// Whether an action on the item `name` is under way at `t`: an enter, exit, move or pulse that
+/// has begun and not finished.
+pub fn under_way(actions: &[Action], name: &str, t: f32) -> bool {
+    actions.iter().filter(|a| a.item == name).any(|a| {
+        let lasts = match a.verb {
+            Verb::Enter { seconds, .. } | Verb::Exit { seconds, .. } | Verb::Pulse { seconds } => {
+                seconds
+            }
+            Verb::Move { seconds, yoyo, .. } => seconds * (yoyo + 1) as f32,
+            Verb::Show | Verb::Hide | Verb::Set(_) => 0.0,
+        };
+        (a.at..a.at + lasts).contains(&t)
+    })
+}
+
+/// How far through `seconds` a thing `since` seconds in is: 0 to 1, and 1 for no time at all.
+fn progress(since: f32, seconds: f32) -> f32 {
+    if seconds <= 0.0 {
+        1.0
+    } else {
+        (since / seconds).clamp(0.0, 1.0)
+    }
+}
+
+/// How far out a move is, `since` seconds in: each leg of `seconds` eased, the odd legs coming
+/// back. After its last leg it rests where that leg ended: out after an even number of yoyos,
+/// home after an odd one.
+fn there(since: f32, seconds: f32, ease: Ease, yoyo: u32) -> f32 {
+    let legs = yoyo + 1;
+    let elapsed = since.clamp(0.0, seconds * legs as f32);
+    let leg = ((elapsed / seconds) as u32).min(legs - 1);
+    let f = ease.apply((elapsed - leg as f32 * seconds) / seconds);
+    if leg.is_multiple_of(2) { f } else { 1.0 - f }
+}
+
+/// A cut's colour at this moment: rising over the last [`CUT_LEAD`] of the shot before a cut, and
+/// falling away, eased, over the cut's own length into the shot.
+fn veil(reel: &Reel, index: usize, local: f32) -> Option<Rgba> {
+    let shot = &reel.shots[index];
+    if let Cut::Through { colour, seconds } = shot.cut
+        && index > 0
+        && local < seconds
+    {
+        let left = 1.0 - local / seconds;
+        // Quadratic out: most of the colour goes early, the rest settles.
+        return Some(with_alpha(colour, left * left));
+    }
+    let next = reel.shots.get(index + 1)?;
+    let Cut::Through { colour, .. } = next.cut else {
+        return None;
+    };
+    let rise = (local - (shot.seconds - CUT_LEAD)) / CUT_LEAD;
+    (rise > 0.0).then(|| with_alpha(colour, rise.min(1.0)))
+}
+
+fn with_alpha(c: Rgba, alpha: f32) -> Rgba {
+    let [r, g, b, a] = c.0;
+    Rgba([r, g, b, (a as f32 * alpha.clamp(0.0, 1.0)).round() as u8])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reel(body: &str) -> Reel {
+        Reel::parse(&format!("reel 100x100 30\nink ground #070c09\n{body}")).unwrap()
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-3
+    }
+
+    #[test]
+    fn a_moment_is_found_in_its_shot() {
+        let r = reel("[a] 2\n[b] 3");
+        assert_eq!(moment(&r, 0.0), (0, 0.0));
+        assert_eq!(moment(&r, 2.0), (1, 0.0));
+        assert_eq!(
+            moment(&r, 9.0),
+            (1, 3.0),
+            "past the end holds the last moment"
+        );
+        assert_eq!(time_of(&r, 45), 1.5);
+    }
+
+    #[test]
+    fn an_item_shows_from_the_start_unless_it_enters() {
+        let r = reel(
+            "[a] 4\nfill @bg #111\nfill @card #222\n1 enter @card fade:0.5\n3 exit @card fade:0.5",
+        );
+        let names = |t: f32| -> Vec<String> {
+            scene(&r, t)
+                .layers
+                .iter()
+                .filter_map(|l| l.item.name.clone())
+                .collect()
+        };
+        assert_eq!(names(0.5), ["bg"]);
+        assert_eq!(
+            names(1.0),
+            ["bg"],
+            "an enter starts invisible: alpha 0 is not drawn"
+        );
+        assert_eq!(names(1.25), ["bg", "card"]);
+        assert_eq!(names(3.25), ["bg", "card"]);
+        assert_eq!(names(3.5), ["bg"], "gone once its exit is over");
+    }
+
+    #[test]
+    fn an_enter_arrives_from_its_presets_pose() {
+        let r = reel("[a] 4\nfill @t #fff\n1 enter @t rise:0.4");
+        let actions = &r.shots[0].actions;
+        assert_eq!(pose(actions, "t", 0.5), None);
+        let start = pose(actions, "t", 1.0).unwrap();
+        assert_eq!((start.y, start.alpha), (20.0, 0.0));
+        let mid = pose(actions, "t", 1.2).unwrap();
+        // Quad out at half way is three quarters there.
+        assert!(close(mid.y, 5.0) && close(mid.alpha, 0.75), "{mid:?}");
+        assert_eq!(pose(actions, "t", 2.0).unwrap(), Delta::NONE);
+    }
+
+    #[test]
+    fn a_yoyo_goes_out_and_back_and_rests_where_its_last_leg_ends() {
+        let r = reel("[a] 9\nfill @p #fff\n0 move @p 1 y=-100 ease=linear yoyo=2");
+        let y = |t: f32| pose(&r.shots[0].actions, "p", t).unwrap().y;
+        assert!(close(y(0.5), -50.0));
+        assert!(close(y(1.0), -100.0) || close(y(1.0), -100.0));
+        assert!(close(y(1.5), -50.0), "coming back");
+        assert!(close(y(2.5), -50.0), "out again");
+        assert!(close(y(8.0), -100.0), "two yoyos: three legs, ending out");
+    }
+
+    #[test]
+    fn moves_add_up_and_a_drop_leaves_the_frame() {
+        let r = reel(
+            "[a] 9\nfill @p #fff\n0 move @p 1 x=10 ease=linear\n2 move @p 1 x=5 ease=linear\n4 exit @p drop:1",
+        );
+        let a = &r.shots[0].actions;
+        assert!(close(pose(a, "p", 3.0).unwrap().x, 15.0));
+        let falling = pose(a, "p", 4.5).unwrap();
+        assert!(falling.frames > 0.0 && falling.rot > 0.0);
+        assert_eq!(pose(a, "p", 5.0), None);
+    }
+
+    #[test]
+    fn an_item_moves_while_an_action_of_its_own_or_a_parents_is_under_way() {
+        let r = reel(
+            "[a] 9\nfill @ph #fff\nfill @t #000 in=@ph\n1 enter @t slam:0.5\n3 move @ph 1 y=10 yoyo=1",
+        );
+        let motion = |t: f32| {
+            scene(&r, t)
+                .layers
+                .iter()
+                .find(|l| l.item.name.as_deref() == Some("t"))
+                .map(|l| l.motion)
+        };
+        assert_eq!(motion(1.2), Some(Motion::Moving), "slamming in");
+        assert_eq!(motion(2.0), Some(Motion::Resting));
+        assert_eq!(
+            motion(4.5),
+            Some(Motion::Moving),
+            "its phone is moving it: two legs"
+        );
+        assert_eq!(motion(5.0), Some(Motion::Resting));
+    }
+
+    #[test]
+    fn a_pulse_shows_only_while_it_swells_and_fades() {
+        let r = reel("[a] 4\nfill @t #fff\n1 pulse @t 0.5\n3 pulse @t 0.5");
+        let a = &r.shots[0].actions;
+        assert_eq!(pose(a, "t", 0.5), None);
+        let start = pose(a, "t", 1.0).unwrap();
+        assert!(close(start.scale, PULSE_FROM) && close(start.alpha, 1.0));
+        let mid = pose(a, "t", 1.25).unwrap();
+        assert!(mid.scale > 1.0 && close(mid.alpha, 0.5), "{mid:?}");
+        assert_eq!(pose(a, "t", 2.0), None);
+        assert!(pose(a, "t", 3.1).is_some(), "it pulses again");
+    }
+
+    #[test]
+    fn a_child_moves_with_its_parent_and_hides_with_it() {
+        let r = reel(
+            "[a] 4\nfill @ph #fff\nfill @sheet #000 in=@ph\n0 move @ph 1 y=100 alpha=0.5 ease=linear\n2 hide @ph",
+        );
+        let sheet = |t: f32| {
+            scene(&r, t)
+                .layers
+                .iter()
+                .find(|l| l.item.name.as_deref() == Some("sheet"))
+                .map(|l| (l.pose.y, l.parents[0].1.y, l.alpha))
+        };
+        // Its own pose stands; the parent's comes with it, to be applied about the parent.
+        assert_eq!(sheet(1.0), Some((0.0, 100.0, 0.5)));
+        assert_eq!(sheet(2.5), None);
+    }
+
+    #[test]
+    fn a_dip_rises_over_the_shot_before_and_falls_away_into_the_next() {
+        let r = reel("[a] 2\n[b] 3 cut=dip:0.5:ground");
+        let alpha = |t: f32| scene(&r, t).veil.map_or(0, |c| c.0[3]);
+        assert_eq!(alpha(1.8), 0);
+        assert!((126..=129).contains(&alpha(1.95)), "half way up the lead");
+        assert_eq!(alpha(2.0), 255, "full at the cut");
+        assert_eq!(
+            alpha(2.25),
+            64,
+            "a quarter left half way through: eased out"
+        );
+        assert_eq!(alpha(2.5), 0);
+        assert_eq!(scene(&r, 2.0).veil.unwrap().0[..3], [7, 12, 9]);
+    }
+}

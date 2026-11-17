@@ -11,7 +11,7 @@ description = "Package a macroquad app as an Android APK: miniquad's Java, the a
 # A LIBRARY with a one-line binary per consuming repo, not a binary here alone:
 # cargo only runs binaries of the workspace it is in, so each repo carries a
 # `tools/mq-apk` crate whose main is `macroquad_apk::main()`. That keeps the
-# packager pinned by the same shared-crates rev as everything else the app
+# packager pinned by the same macroquad-kit rev as everything else the app
 # links, and runnable with nothing but cargo (`cargo run -q -p mq-apk -- …`).
 #
 # Native only: it shells out to cargo and to the SDK's tools, and writes files.

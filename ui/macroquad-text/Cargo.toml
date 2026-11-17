@@ -16,3 +16,8 @@ description = "Text for every macroquad surface: exact-size, DPI-correct runs, r
 
 [dependencies]
 macroquad = "0.4"
+
+# The DOM text sink's plugin bridge (`dom`): a JsObject string and buffer, no
+# wasm-bindgen.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sapp-jsutils = "0.1"

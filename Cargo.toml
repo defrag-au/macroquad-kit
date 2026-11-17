@@ -56,28 +56,28 @@ macroquad-widgets = { path = "ui/macroquad-widgets" }
 
 # ── The pure core, consumed from `shared-crates` ──────────────────────────
 # One rev, shared by every entry below and kept in step with each consuming
-# repo's own `shared-crates` pin. `aa9fe4ab` is the last pushed `main`; bump
-# this after the shared-crates extraction commit is pushed.
-ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-chains = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-cnft-holdings = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-image-core = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-miniquad-platform = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-wallet-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-discord-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-wallet-link-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
+# repo's own `shared-crates` pin. Bump every entry together, then bump each
+# consumer to match.
+ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+chains = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+cnft-holdings = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+image-core = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+miniquad-platform = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+wallet-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+discord-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+wallet-link-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
 # The `chain` widgets' only dependency, and off by default in the widgets.
-chain-heartbeat = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524", default-features = false }
-discord-auth = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-arcade-core = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-arcade-room = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-scenegraph = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-scenegraph-mq = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
-sceneinput = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524" }
+chain-heartbeat = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e", default-features = false }
+discord-auth = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+arcade-core = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+arcade-room = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+scenegraph = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+scenegraph-mq = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+sceneinput = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
 # `mq-flow-probe`'s transport. Default features off: the web-sys transport
 # pulls wasm-bindgen, which miniquad cannot host.
-ui-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "e1cf4dec7158557be593dc51af15e2fa28f29524", default-features = false }
+ui-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e", default-features = false }
 
 # macroquad's glyph-atlas packing fix (upstream 8d602d3, "text: avoid spurious
 # font atlas growth"), which landed after 0.4.16. A glyph landing within 2 px of
@@ -100,7 +100,14 @@ macroquad = { git = "https://github.com/not-fl3/macroquad", rev = "8d602d3f8ebb8
 #
 # Pinned to the branch's tip, tagged `headless-2026-11` in the fork; not in a
 # miniquad release yet.
-miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "59178c9744c6881e8d600d787e5a4284ab5ccbdc" }
+miniquad = { git = "https://github.com/defrag-au/miniquad", rev = "564ec1eee1026632b6dc083735aefc5cdb82ca19" }
+
+# quad-net's page script kept one `connected` flag, set on open and never cleared: a socket opened
+# again read as connected while still CONNECTING, and the first send threw through the wasm and
+# left the page dead (2026-11-15). The fork reads the socket's own `readyState` and drops, never
+# throws, a send on one that is not open. Branch `defrag-socket-state` off upstream's `31796d4e`.
+[patch."https://github.com/not-fl3/quad-net"]
+quad-net = { git = "https://github.com/defrag-au/quad-net", rev = "edef26fb9959922b7a9980a0cc1976d20dd8afbd" }
 
 # Local development: uncomment the WHOLE block to consume the sibling
 # `shared-crates` checkout instead of the pinned rev. Toggle it as a unit — a

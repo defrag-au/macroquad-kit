@@ -17,8 +17,10 @@ use std::f32::consts::{PI, TAU};
 
 use chains::ChainFamily;
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
 use macroquad_gamekit::wallet_modal::{chain_mark, chain_tint};
 use macroquad_gamekit::{Animated, Ease, Particles};
+use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
 use macroquad_widgets::{
     Align, Gradient, Painter, TextSize, fill_gradient, fill_rounded, fill_texture_rounded,
 };

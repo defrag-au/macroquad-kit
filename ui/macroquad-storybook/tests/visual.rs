@@ -36,9 +36,10 @@
 //! ```
 //!
 //! That writes the current machine's set: arm64 on an Apple Silicon host,
-//! x86_64 on an Intel one. The x86_64 Linux set is the CI runner's; take it
-//! from the `visual-captures` artifact (or an Ubuntu 24.04 amd64 container),
-//! not from a bless on an Apple Silicon machine.
+//! x86_64 on an Intel one. A Linux set is written in a container, never by a
+//! native bless: `.stacks/linux-check` has the arm64 and (Rosetta) amd64
+//! recipes. The x86_64 set is also what CI checks on `ubuntu-24.04`, whose Mesa
+//! is the contract; a `bless_goldens` dispatch writes it.
 //!
 //! The categories below are the ones stable enough to pin. A category joins
 //! the list once its view models stop moving under feature work; every story
@@ -50,18 +51,12 @@ use std::process::Command;
 
 const CATEGORIES: &[&str] = &["atoms", "input", "gamekit", "page", "app-shell", "admin"];
 
-/// Stories that exist to show a cut: the app bar's over-long title and the card
-/// face's shrinking name plate. `cut` is the only problem they may report, and
-/// any other problem in either still fails.
-const EXPECTED_CUTS: &[&str] = &["app-shell/app-bar", "gamekit/card-face"];
-
 fn storybook() -> &'static str {
     env!("CARGO_BIN_EXE_macroquad-storybook")
 }
 
 fn goldens_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("tests/goldens-{}", std::env::consts::ARCH))
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/goldens-{}", std::env::consts::ARCH))
 }
 
 /// `tests/goldens-<arch>/<slug>/<os>.png`.
@@ -117,7 +112,7 @@ fn selected() -> Vec<(String, Option<f64>)> {
 
 #[test]
 fn every_selected_story_has_a_golden() {
-    if std::env::var_os("UPDATE_GOLDENS").is_some() {
+    if macroquad_gamekit::harness::update_goldens() {
         return;
     }
     let missing: Vec<_> = selected()
@@ -202,9 +197,6 @@ fn every_selected_story_has_no_text_problems() {
         ]);
         if let Some(at) = at {
             command.arg("--at").arg(at.to_string());
-        }
-        if EXPECTED_CUTS.contains(&slug.as_str()) {
-            command.args(["--allow", "cut"]);
         }
         let out = command
             .output()

@@ -5,11 +5,13 @@
 //! a phone's width.
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
 use macroquad_widgets::theme::with_alpha;
 use macroquad_widgets::{
     Align, Message, Painter, Spinner, StatTile, StatTilesVm, TextSize, draw_rounded_rect,
     stat_tiles, surface,
 };
+use macroquad_widgets::{draw_circle, draw_circle_lines};
 
 /// A phone's width: where each of these is read first.
 const PHONE_W: f32 = 390.0;

@@ -14,6 +14,8 @@
 use std::f32::consts::TAU;
 
 use macroquad::prelude::*;
+// The exact disc: an explicit import shadows the prelude's twenty-sided one.
+use macroquad_widgets::shape::draw_circle;
 
 /// One star, in the field's own terms.
 #[derive(Clone, Copy, Debug, PartialEq)]

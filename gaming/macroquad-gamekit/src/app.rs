@@ -65,10 +65,11 @@ use crate::harness::{
     target_camera, window_camera,
 };
 use crate::input::InputSnapshot;
-use crate::plan::{Next, Plan, PlanRun};
+use crate::plan::{Next, Plan, PlanRun, Take};
 use crate::startup::Startup;
 use crate::step::{FixedStep, Tick};
 use crate::text::enable_glyph_gate;
+use crate::video::VideoWriter;
 
 /// Where a game draws. Not `PartialEq`: [`Stage::PixelFit`] holds a function,
 /// and function pointers do not compare reliably.
@@ -359,6 +360,9 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
     if let Some(path) = args.sprites.as_deref() {
         review_sprites(path, &game);
     }
+    if args.reel.is_some() {
+        crate::reel::run::run(Player::new(stage, game, args.clone()), &args).await;
+    }
     let scripted = game.scripted();
     let capturing = args.capturing() || scripted;
     if capturing {
@@ -379,12 +383,7 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
         (false, None) => Startup::new(),
     };
     let exit_after = harness::flag_num::<f32>("--seconds");
-    let mut sim = Sim {
-        clock: 0.0,
-        frames: 0,
-        step: game.tick_rate().map(FixedStep::new),
-        gestures: Gestures::new(),
-    };
+    let mut sim = Sim::new(&game);
     // A `--shot --at T` capture skips drawing on its way to T: see
     // `fast_forward_to`.
     let fast_forward = fast_forward_to(&args, scripted);
@@ -401,6 +400,8 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
             std::process::exit(2)
         }
     });
+    // A plan's `record` clips being encoded, by their index in the section.
+    let mut videos: std::collections::BTreeMap<usize, VideoWriter> = Default::default();
 
     loop {
         // A fitted stage resolves to a plain pixel stage each frame, and gets
@@ -509,8 +510,8 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
             simulate(&mut game, &mut sim, &args, keys, placed, dt, text)
         });
         let frames = sim.frames;
-        // Where a plan's capture of this frame goes, if it takes one.
-        let plan_shot = plan.as_ref().and_then(|run| run.due().map(str::to_string));
+        // What a plan captures this frame for, if anything: a still, or a frame of a clip.
+        let plan_shot = plan.as_ref().and_then(|run| run.due().cloned());
         let frame = Frame {
             args: &args,
             dt,
@@ -572,6 +573,8 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                 game.draw_margin(&frame);
             }
         }
+        // The pointer over whatever this frame drew that can be pressed, the arrow elsewhere.
+        macroquad_widgets::cursor::finish_frame();
         timer.mark(FrameMark::Draw);
 
         let finished = crate::profile::time("glyphs", || startup.finish(dt, game.ready()));
@@ -652,9 +655,24 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
             // over the canvas, the canvas itself otherwise.
             let shown = composite.unwrap_or(target);
             present(shown, viewport, origin);
-            if let (Some(path), Some(run)) = (&plan_shot, plan.as_mut()) {
-                let note = plan_note(run);
-                wrote_planned(path, harness::write_capture(&shown.texture, path, &note));
+            if let (Some(take), Some(run)) = (&plan_shot, plan.as_mut()) {
+                match take {
+                    Take::Still(path) => {
+                        let note = plan_note(run);
+                        wrote_planned(
+                            path,
+                            harness::write_capture(&shown.texture, path, &note),
+                            &args,
+                        );
+                    }
+                    Take::Clip(index) => record_frame(
+                        &mut videos,
+                        run,
+                        *index,
+                        &shown.texture.get_texture_data(),
+                        args.quality,
+                    ),
+                }
                 run.wrote();
             } else if due && let Some(path) = args.shot.as_ref() {
                 let note = game.capture_note(&frame);
@@ -665,15 +683,24 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                             finish_capture(path, run.save(path, &note));
                         }
                     }
-                    None => {
-                        finish_capture(path, harness::write_capture(&shown.texture, path, &note))
-                    }
+                    None => finish_text_capture(
+                        path,
+                        harness::write_capture(&shown.texture, path, &note),
+                        &args,
+                    ),
                 }
             }
         } else if let Some(capture) = capture {
-            if let (Some(path), Some(run)) = (&plan_shot, plan.as_mut()) {
-                let note = plan_note(run);
-                wrote_planned(path, capture.save(path, &note));
+            if let (Some(take), Some(run)) = (&plan_shot, plan.as_mut()) {
+                match take {
+                    Take::Still(path) => {
+                        let note = plan_note(run);
+                        wrote_planned(path, capture.save(path, &note), &args);
+                    }
+                    Take::Clip(index) => {
+                        record_frame(&mut videos, run, *index, &capture.image(), args.quality)
+                    }
+                }
                 run.wrote();
             } else if let Some(path) = args.shot.as_ref() {
                 let note = game.capture_note(&frame);
@@ -683,7 +710,7 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                             finish_capture(path, run.save(path, &note));
                         }
                     }
-                    None => save(capture, path, &note),
+                    None => finish_text_capture(path, capture.save(path, &note), &args),
                 }
             }
         }
@@ -721,16 +748,201 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
     }
 }
 
-/// Report a plan's capture, and stop the run if its report couldn't be
-/// written: a plan's captures are its whole point.
-fn wrote_planned(path: &str, written: std::io::Result<std::path::PathBuf>) {
-    match written {
-        Ok(report) => println!("wrote {path} and {}", report.display()),
-        Err(error) => {
-            eprintln!("wrote {path}, but not its report: {error}");
-            std::process::exit(1);
+/// A game driven from outside the loop, one frame at a time, into a target of its own: what a
+/// [reel](crate::reel) needs from a game, and nothing more.
+///
+/// The reel never reaches into the loop's state. It puts the game in a condition
+/// ([`Player::reset`], [`Player::setup`]), gives it a viewport ([`Player::resize`]), and asks for
+/// frames ([`Player::frame`]): each one simulated on the same path the loop takes, then drawn into
+/// the player's target at the viewport's size, whatever the window is.
+pub(crate) struct Player<G: Game> {
+    game: G,
+    stage: Stage,
+    /// The run's flags, with `--size` and `--px` standing for the current viewport.
+    args: Args,
+    sim: Sim,
+    startup: Startup,
+    target: Option<RenderTarget>,
+}
+
+impl<G: Game> Player<G> {
+    pub(crate) fn new(stage: Stage, game: G, args: Args) -> Self {
+        enable_glyph_gate();
+        Self {
+            sim: Sim::new(&game),
+            game,
+            stage,
+            args,
+            startup: Startup::capture(),
+            target: None,
         }
     }
+
+    /// Run until the game can be drawn whole: past the loop's settling frames, and ready.
+    pub(crate) async fn settle(&mut self) {
+        while self.sim.frames < SETTLE_FRAMES || !self.game.ready() {
+            self.frame(harness::FIXED_DT);
+            next_frame().await;
+        }
+    }
+
+    /// Back to how the game starts.
+    pub(crate) fn reset(&mut self) {
+        self.game.reset();
+    }
+
+    /// One condition line, as a capture plan's `set`.
+    pub(crate) fn setup(&mut self, line: &str) -> Result<(), String> {
+        self.game.setup(line)
+    }
+
+    /// Draw from now on at `size` points and `px` pixels a point.
+    pub(crate) fn resize(&mut self, size: (u32, u32), px: f32) {
+        self.args.size = Some((size.0 as i32, size.1 as i32));
+        self.args.px = Some(px);
+    }
+
+    /// Run the game `seconds` on without drawing it, on the fixed clock: a shot that starts part
+    /// way into a moment. The game keeps its state in `update`, never `draw`, so this lands on
+    /// the frame drawing would have.
+    pub(crate) fn skip(&mut self, seconds: f32) {
+        let frames = (seconds / harness::FIXED_DT).round() as u32;
+        for _ in 0..frames {
+            self.advance(harness::FIXED_DT);
+        }
+    }
+
+    /// Advance the game by `dt` without drawing it: what a frame does, less the drawing. A reel
+    /// seeking back replays its shot this way.
+    pub(crate) fn advance(&mut self, dt: f32) {
+        let placed = place(self.stage, &self.args);
+        let text = self.startup.text();
+        let keys = (&[][..], self.sim.frames);
+        simulate(
+            &mut self.game,
+            &mut self.sim,
+            &self.args,
+            keys,
+            placed,
+            dt,
+            text,
+        );
+        self.sim.frames += 1;
+    }
+
+    /// Advance the game by `dt` and draw it: the finished frame, rows bottom-first as a render
+    /// target's are. The game's own text is left out of a reel's report, which is in the reel's
+    /// pixels, not the game's points.
+    pub(crate) fn frame(&mut self, dt: f32) -> &Texture2D {
+        let placed = place(self.stage, &self.args);
+        let px = match self.stage {
+            Stage::Pixel { .. } | Stage::PixelFit(_) => placed.px,
+            _ => self.args.capture_px(placed.px),
+        };
+        self.startup.begin(dt, px);
+        let text = self.startup.text();
+        let keys = (&[][..], self.sim.frames);
+        let (input, alpha) = simulate(
+            &mut self.game,
+            &mut self.sim,
+            &self.args,
+            keys,
+            placed,
+            dt,
+            text,
+        );
+        let frame = Frame {
+            args: &self.args,
+            dt,
+            clock: self.sim.clock,
+            frames: self.sim.frames,
+            viewport: placed.viewport,
+            px,
+            origin: placed.origin,
+            bounds: placed.bounds,
+            input: &input,
+            alpha,
+            text,
+            canvas: None,
+        };
+        let pixels = (
+            (placed.window.x * px).ceil().max(1.0) as u32,
+            (placed.window.y * px).ceil().max(1.0) as u32,
+        );
+        if self
+            .target
+            .as_ref()
+            .is_none_or(|t| t.texture.size() != vec2(pixels.0 as f32, pixels.1 as f32))
+        {
+            let target = plain_target(pixels.0, pixels.1);
+            target.texture.set_filter(FilterMode::Linear);
+            self.target = Some(target);
+        }
+        let target = self.target.as_ref().expect("just made");
+        let shake = self.game.shake() + placed.offset;
+        set_camera(&target_camera(placed.window, shake, target));
+        clear_background(self.game.backdrop().bottom);
+        let game = &mut self.game;
+        // Offline, a frame may take as long as it likes: every glyph is cached as it is drawn, so
+        // no text is held back for a frame and missing from the video.
+        harness::report::muted(|| crate::text::ungated(|| game.draw(&frame)));
+        macroquad_widgets::cursor::finish_frame();
+        self.startup.finish(dt, self.game.ready());
+        self.sim.frames += 1;
+        &target.texture
+    }
+}
+
+/// Add this frame to the current section's clip `index`: opening its encoder on the first frame,
+/// at that frame's size, and closing it on the clip's last. A clip that cannot be written stops
+/// the run, as a still whose report cannot be written does: the clip is the run's whole point.
+fn record_frame(
+    videos: &mut std::collections::BTreeMap<usize, VideoWriter>,
+    run: &PlanRun,
+    index: usize,
+    image: &Image,
+    quality: crate::video::Quality,
+) {
+    let Some(clip) = run.clip(index) else {
+        return;
+    };
+    let result = (|| -> std::io::Result<()> {
+        if let std::collections::btree_map::Entry::Vacant(slot) = videos.entry(index) {
+            slot.insert(VideoWriter::open(
+                &clip.path,
+                clip.fps,
+                image.width,
+                image.height,
+                quality,
+            )?);
+        }
+        videos.get_mut(&index).expect("just opened").push(image)?;
+        if run.frame() == clip.last()
+            && let Some(writer) = videos.remove(&index)
+        {
+            let (w, h) = writer.size();
+            let frames = writer.finish()?;
+            println!(
+                "wrote {} · {frames} frames at {} fps, {:.1}s, {w}x{h}",
+                clip.path,
+                clip.fps,
+                frames as f32 / clip.fps as f32
+            );
+        }
+        Ok(())
+    })();
+    if let Err(e) = result {
+        eprintln!("clip {}: {e}", clip.path);
+        std::process::exit(2);
+    }
+}
+
+/// Report a plan's capture, and stop the run if its report couldn't be
+/// written: a plan's captures are its whole point. With `--fail-on-problems`,
+/// a reported problem stops the plan too.
+fn wrote_planned(path: &str, written: std::io::Result<std::path::PathBuf>, args: &harness::Args) {
+    wrote(path, written);
+    check_problems(path, args);
 }
 
 /// Frames drawn before a capture fast-forwards: the start of the run, where
@@ -765,6 +977,18 @@ struct Sim {
     frames: u32,
     step: Option<FixedStep>,
     gestures: Gestures,
+}
+
+impl Sim {
+    /// A loop's state before its first frame, for `game`.
+    fn new(game: &impl Game) -> Self {
+        Self {
+            clock: 0.0,
+            frames: 0,
+            step: game.tick_rate().map(FixedStep::new),
+            gestures: Gestures::new(),
+        }
+    }
 }
 
 /// One frame of simulation: read the input, run `update` and the ticks due.
@@ -1022,7 +1246,8 @@ pub fn save(capture: Capture, path: &str, note: &str) -> ! {
     finish_capture(path, capture.save(path, note))
 }
 
-fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> ! {
+/// Say where a capture and its report went, or stop if the report failed.
+fn wrote(path: &str, written: std::io::Result<std::path::PathBuf>) {
     match written {
         Ok(report) => println!("wrote {path} and {}", report.display()),
         Err(error) => {
@@ -1030,6 +1255,38 @@ fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> !
             std::process::exit(1);
         }
     }
+}
+
+/// `--fail-on-problems`: stop on a text problem `--allow` does not cover.
+fn check_problems(path: &str, args: &harness::Args) {
+    if !args.fail_on_problems {
+        return;
+    }
+    let problems = args.capture_problems();
+    if problems.is_empty() {
+        return;
+    }
+    eprintln!(
+        "{} text problem(s) in {path}; see {}",
+        problems.len(),
+        std::path::Path::new(path).with_extension("txt").display()
+    );
+    std::process::exit(2);
+}
+
+/// A text capture: write it, check it when asked, and exit.
+fn finish_text_capture(
+    path: &str,
+    written: std::io::Result<std::path::PathBuf>,
+    args: &harness::Args,
+) -> ! {
+    wrote(path, written);
+    check_problems(path, args);
+    std::process::exit(0);
+}
+
+fn finish_capture(path: &str, written: std::io::Result<std::path::PathBuf>) -> ! {
+    wrote(path, written);
     std::process::exit(0);
 }
 

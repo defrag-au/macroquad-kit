@@ -14,6 +14,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use macroquad::prelude::*;
+// The exact discs and rings: explicit imports shadow the prelude's.
+use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
 
 use crate::ease::Ease;
 use crate::paint::{Gradient, fill_gradient};

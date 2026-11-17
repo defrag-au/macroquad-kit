@@ -40,6 +40,27 @@ pub(crate) fn paint(
     alpha: f32,
 ) {
     let k = pixel_scale.max(0.01);
+    // A web page that asked for DOM text draws this run itself, from its box.
+    if crate::dom::active() {
+        let m = MeasureAt(k);
+        let ascent = m.ascent(style) * scale;
+        let rect = Rect::new(
+            at.x,
+            at.y - ascent,
+            m.width(text, style) * scale,
+            ascent + m.descent(style) * scale,
+        );
+        if crate::dom::take(
+            text,
+            style,
+            rect,
+            style.size * scale,
+            alpha,
+            &report::clips(),
+        ) {
+            return;
+        }
+    }
     let (font_size, font_scale) = draw_raster(style.size, k, screen_dpi_scale());
     let fade = |c: Color| Color::new(c.r, c.g, c.b, c.a * alpha);
     let params = |color: Color| TextParams {

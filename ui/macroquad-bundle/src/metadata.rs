@@ -33,6 +33,18 @@ struct Package {
     /// absent for a path dependency.
     #[serde(default)]
     source: Option<String>,
+    /// `[package.metadata]`, of which only the bundler's own table is read.
+    #[serde(default)]
+    metadata: Option<PackageMeta>,
+}
+
+/// `[package.metadata]` as far as the bundler reads it: every other table a crate keeps there
+/// is ignored.
+#[derive(Deserialize, Default)]
+struct PackageMeta {
+    /// `[package.metadata.mq-bundle]`: the page's social card.
+    #[serde(default, rename = "mq-bundle")]
+    bundle: Option<crate::page::Card>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +79,8 @@ pub struct Linked {
     crates: BTreeMap<String, Vec<(String, PathBuf)>>,
     /// Crate name → the version of each copy that comes from crates.io.
     registry: BTreeMap<String, Vec<String>>,
+    /// The page's social card, from the package's own `[package.metadata.mq-bundle]`.
+    pub card: Option<crate::page::Card>,
 }
 
 /// The last macroquad release with the glyph-atlas doubling bug; the fix
@@ -212,6 +226,7 @@ fn walk(meta: &Metadata, package: &str) -> Result<Linked, String> {
         target_dir: meta.target_directory.clone(),
         crates,
         registry,
+        card: root.metadata.as_ref().and_then(|m| m.bundle.clone()),
     })
 }
 
@@ -264,6 +279,39 @@ mod tests {
             dep("miniquad 0.4.10", "null"),
         );
         serde_json::from_str(&json).expect("fixture parses")
+    }
+
+    /// The card is the bundled package's own: another crate's metadata, of any shape, is not
+    /// read as one, and a crate with no table has no card.
+    #[test]
+    fn the_social_card_is_read_from_the_packages_own_metadata() {
+        let package = |name: &str, metadata: &str| {
+            format!(
+                r#"{{"name":"{name}","version":"0.1.0","id":"{name} 0.1.0","manifest_path":"/src/{name}/Cargo.toml","metadata":{metadata}}}"#
+            )
+        };
+        let json = format!(
+            r#"{{"packages":[{},{},{}],
+                "workspace_members":["game 0.1.0","plain 0.1.0","other 0.1.0"],
+                "target_directory":"/t",
+                "resolve":{{"nodes":[
+                  {{"id":"game 0.1.0","deps":[]}},
+                  {{"id":"plain 0.1.0","deps":[]}},
+                  {{"id":"other 0.1.0","deps":[]}}
+                ]}}}}"#,
+            package(
+                "game",
+                r#"{"mq-bundle":{"url":"https://a.b/","description":"The pods.","image":"assets/card.jpg"},"docs":{"rs":true}}"#
+            ),
+            package("plain", "null"),
+            package("other", r#"{"wasm-pack":{"profile":{"release":{}}}}"#),
+        );
+        let meta: Metadata = serde_json::from_str(&json).expect("parses");
+        let card = walk(&meta, "game").expect("walk").card.expect("a card");
+        assert_eq!(card.url, "https://a.b/");
+        assert_eq!(card.bundled_image(), Some("assets/card.jpg"));
+        assert!(walk(&meta, "plain").expect("walk").card.is_none());
+        assert!(walk(&meta, "other").expect("walk").card.is_none());
     }
 
     #[test]

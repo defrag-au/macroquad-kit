@@ -19,9 +19,9 @@
 //! difference from `quad-net`, whose reply carries no status, and from
 //! `macroquad-cnft`'s GET, which reads every non-2xx as a failure.
 //!
-//! The web build fetches through `js/app.js`; natively a thread runs each
-//! request with `ureq`. A request is a value the caller owns: dropping it
-//! abandons the reply.
+//! The web build fetches through the app shell's page script
+//! (`gamekit-app-shell.js`); natively a thread runs each request with `ureq`. A
+//! request is a value the caller owns: dropping it abandons the reply.
 
 use std::task::Poll;
 

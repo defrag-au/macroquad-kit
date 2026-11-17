@@ -1,8 +1,8 @@
 # Card faces with the gamekit
 
 How to build a card face that reads like a printed trading card and stays readable in a hand.
-The worked example is `card.rs` in augminted-bots' `fight-macroquad`; this note is the part that
-carries over to another card game. Read `CATALOG.md` for the modules named here.
+The worked example is `card.rs` in augminted-bots' `fight-macroquad` (a private repo); this note
+is the part that carries over to another card game. Read `CATALOG.md` for the modules named here.
 
 ## Readability comes first
 
