@@ -34,11 +34,16 @@ jobs:
           shared-key: "test"
           cache-on-failure: true
 
+      # `--locked` throughout: `security.yaml` audits the committed lockfile,
+      # so the graph built here has to be that same graph. A manifest change
+      # that forgets its lockfile update fails here instead of silently
+      # resolving a different graph on the runner.
+      #
       # The storybook's golden suite is its own job (`visual`): it needs a
       # headless GL runtime, and a changed picture should fail under its own
       # name rather than inside the functional suite.
-      - run: cargo check --workspace --exclude macroquad-storybook --all-targets
-      - run: cargo test --workspace --exclude macroquad-storybook --all-targets
+      - run: cargo check --workspace --exclude macroquad-storybook --all-targets --locked
+      - run: cargo test --workspace --exclude macroquad-storybook --all-targets --locked
 
   clippy:
     name: Clippy
@@ -57,7 +62,7 @@ jobs:
           shared-key: "clippy"
           cache-on-failure: true
 
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # `cargo check` does not link, so a library that needs a miniquad JS plugin
   # at link time can still be checked here. What this catches is a dependency
@@ -86,20 +91,20 @@ jobs:
       # macroquad crates clear. `cargo check` would compile wasm-bindgen
       # happily — resolution is what decides whether a miniquad host can link.
       - name: Guard — the macroquad surfaces stay linkable under miniquad
-        run: cargo test -p macroquad-gamekit --test miniquad_linkable
+        run: cargo test -p macroquad-gamekit --test miniquad_linkable --locked
 
       # `--all-features` applies to the whole invocation, so the two crates that
       # need it are checked on their own.
       - name: Check the widgets and gamekit with every feature
         run: |
-          cargo check --target wasm32-unknown-unknown \
+          cargo check --target wasm32-unknown-unknown --locked \
             -p macroquad-widgets --all-features
-          cargo check --target wasm32-unknown-unknown \
+          cargo check --target wasm32-unknown-unknown --locked \
             -p macroquad-gamekit --all-features
 
       - name: Check the remaining wasm-compatible crates
         run: |
-          cargo check --target wasm32-unknown-unknown \
+          cargo check --target wasm32-unknown-unknown --locked \
             -p macroquad-text \
             -p macroquad-app \
             -p macroquad-tui \
@@ -153,7 +158,7 @@ jobs:
           # A dispatch with `bless_goldens` writes the goldens instead of
           # checking them. Empty means check; the reader treats it as unset.
           UPDATE_GOLDENS: ${{ github.event_name == 'workflow_dispatch' && inputs.bless_goldens && '1' || '' }}
-        run: cargo test -p macroquad-storybook --test visual -- --test-threads=2
+        run: cargo test -p macroquad-storybook --test visual --locked -- --test-threads=2
 
       - name: Upload the blessed goldens
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.bless_goldens }}

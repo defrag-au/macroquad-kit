@@ -1,0 +1,80 @@
+# cargo-deny — the supply-chain gate. The same command CI runs, locally:
+#
+#   direnv exec . cargo deny --all-features check advisories bans sources
+#
+# `--all-features` is not optional: `cargo-deny-action` passes it by default,
+# and it is what reaches the optional paths (`ui-flow/macroquad` -> quad-net ->
+# qws). Auditing without it is how a local run passes while CI fails.
+#
+# An entry in `ignore` is a decision, not a silence: name the advisory, say why
+# it cannot be fixed today, and give a date to look again.
+
+[advisories]
+version = 2
+
+# A yanked version still resolves, so it is a signal the bump is overdue rather
+# than a vulnerability. Denied because the bump is usually a one-liner.
+yanked = "deny"
+
+# The audit found five, all with no patched version available from here. Each
+# entry names the path and who would have to move. Revisit 2027-05-17.
+ignore = [
+  # quad-net's WebSocket transport -> qws 0.7.9 -> mio 0.6 -> net2. qws has not
+  # moved since 2019, and no mio in that line is patched.
+  "RUSTSEC-2020-0016",
+  # The same path: qws -> url 1.7.2, which pins `idna ^0.1.0`. The remedy is
+  # url >= 2.5.4, so qws (or quad-net dropping it) has to move. The URL is the
+  # operator's relay, not input from a peer, and nothing here compares host
+  # names as a privilege check.
+  "RUSTSEC-2024-0421",
+  # simba's proc-macro path; the crate is archived and there is no upgrade.
+  "RUSTSEC-2024-0436",
+  # statig_macro, through statig 0.4.
+  "RUSTSEC-2026-0173",
+  # fontdue, fdsm-ttf-parser, and scenegraph via shared-crates. Unmaintained
+  # with no safe upgrade.
+  "RUSTSEC-2026-0192",
+]
+
+[bans]
+# The kit carries a handful of duplicates; warn until the list is worth
+# reading, then ratchet to "deny".
+multiple-versions = "warn"
+# A literal wildcard would let `cargo update` cross a semver boundary the
+# miniquad/macroquad glue does not tolerate. There are none today; path
+# dependencies also count as wildcards, which is why this is not "deny" yet
+# (see the note in shared-crates/deny.toml).
+wildcards = "warn"
+
+# Stated explicitly rather than inherited: the docs on `main` and the shipped
+# 0.21.0 disagree about these defaults, and a local 0.20.2 disagrees with both.
+#
+# `duplicates` is warn because the kit mixes inherited and direct declarations —
+# `macroquad` is declared 15 times with no workspace entry, and `serde`,
+# `serde_json`, `quad-net`, `ureq` and the kit's own crates mix both forms.
+# `unused` is denied: it passes today, and it is the check that keeps the
+# workspace table from becoming a graveyard. Both are ratchet candidates — a
+# consistency sweep first, then "deny".
+[bans.workspace-dependencies]
+duplicates = "warn"
+unused = "deny"
+
+[sources]
+# Everything resolves from crates.io or one of these four git repositories.
+# `shared-crates` is the kit's own upstream; `miniquad` and `quad-net` are the
+# defrag forks and `macroquad` is the upstream URL cargo records for the
+# patched crate.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+  "https://github.com/defrag-au/miniquad",
+  "https://github.com/defrag-au/quad-net",
+  "https://github.com/defrag-au/shared-crates",
+  "https://github.com/not-fl3/macroquad",
+]
+
+# `licenses` is deliberately absent: the workspace members carry no licence
+# field yet, so the check would fail on this repository rather than on its
+# dependencies. Follow shared-crates: derive the allow-list from the resolved
+# manifests, not from a guess, and add "licenses" to the workflow once the
+# members inherit `license.workspace = true`.
