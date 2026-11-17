@@ -217,15 +217,18 @@ pub struct Grade {
     pub vignette: f32,
     /// How dark the gaps between scanlines are.
     pub scan: f32,
-    /// A worn tape: lines jitter sideways, grain crawls, a tracking band rolls down.
+    /// A worn tape's texture: lines jitter sideways and grain crawls.
     pub tape: f32,
+    /// A tracking band rolling down the picture every six seconds, tearing the lines it crosses
+    /// sideways: the tape's loudest fault, so a control of its own.
+    pub track: f32,
     /// Red and blue pulled apart sideways, as a VHS smears its colour.
     pub bleed: f32,
 }
 
 impl Grade {
     /// Its controls by name, as a `grade` line writes them.
-    fn slots(&mut self) -> [(&'static str, &mut f32); 7] {
+    fn slots(&mut self) -> [(&'static str, &mut f32); 8] {
         [
             ("mono", &mut self.mono),
             ("contrast", &mut self.contrast),
@@ -233,6 +236,7 @@ impl Grade {
             ("vignette", &mut self.vignette),
             ("scan", &mut self.scan),
             ("tape", &mut self.tape),
+            ("track", &mut self.track),
             ("bleed", &mut self.bleed),
         ]
     }
@@ -2360,7 +2364,10 @@ text @roll url at=110,1490 within=110,290,860x1160 "fine print"
         )
         .unwrap();
         let inside = reel.safe.unwrap().inside(reel.size);
-        assert_eq!((inside.x, inside.y, inside.w, inside.h), (60.0, 220.0, 900.0, 1320.0));
+        assert_eq!(
+            (inside.x, inside.y, inside.w, inside.h),
+            (60.0, 220.0, 900.0, 1320.0)
+        );
         assert_eq!(reel.shots[0].items[0].safety, Safety::Ignore);
         assert_eq!(
             error("reel 10x10 30\n[a] 1\nfill #fff safe=maybe"),
@@ -2387,7 +2394,7 @@ text @roll url at=110,1490 within=110,290,860x1160 "fine print"
         );
         assert_eq!(
             error("reel 10x10 30\ngrade g sepia=1\n[a] 1"),
-            "line 2: `grade` takes no `sepia=`; it takes mono, contrast, exposure, vignette, scan, tape, bleed"
+            "line 2: `grade` takes no `sepia=`; it takes mono, contrast, exposure, vignette, scan, tape, track, bleed"
         );
     }
 

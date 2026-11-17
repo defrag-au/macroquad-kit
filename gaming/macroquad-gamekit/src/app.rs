@@ -665,9 +665,13 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                             &args,
                         );
                     }
-                    Take::Clip(index) => {
-                        record_frame(&mut videos, run, *index, &shown.texture.get_texture_data())
-                    }
+                    Take::Clip(index) => record_frame(
+                        &mut videos,
+                        run,
+                        *index,
+                        &shown.texture.get_texture_data(),
+                        args.quality,
+                    ),
                 }
                 run.wrote();
             } else if due && let Some(path) = args.shot.as_ref() {
@@ -693,7 +697,9 @@ async fn run_loop(stage: Stage, mut game: impl Game) {
                         let note = plan_note(run);
                         wrote_planned(path, capture.save(path, &note), &args);
                     }
-                    Take::Clip(index) => record_frame(&mut videos, run, *index, &capture.image()),
+                    Take::Clip(index) => {
+                        record_frame(&mut videos, run, *index, &capture.image(), args.quality)
+                    }
                 }
                 run.wrote();
             } else if let Some(path) = args.shot.as_ref() {
@@ -895,6 +901,7 @@ fn record_frame(
     run: &PlanRun,
     index: usize,
     image: &Image,
+    quality: crate::video::Quality,
 ) {
     let Some(clip) = run.clip(index) else {
         return;
@@ -906,6 +913,7 @@ fn record_frame(
                 clip.fps,
                 image.width,
                 image.height,
+                quality,
             )?);
         }
         videos.get_mut(&index).expect("just opened").push(image)?;

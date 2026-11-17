@@ -92,7 +92,7 @@ phone @ph at=266,256 width=548 label="MetaMask's browser"
 ### Grades
 
 ```text
-grade vhs mono=1 contrast=0.25 exposure=-0.15 vignette=0.35 scan=0.3 tape=0.55 bleed=0.4
+grade vhs mono=1 contrast=0.25 exposure=-0.15 vignette=0.18 scan=0.3 tape=0.55 track=0.25 bleed=0.15
 ```
 
 The look of a dubbed infomercial off a worn tape. Each control is 0 when not given, which leaves
@@ -105,7 +105,8 @@ the frame alone.
 | `exposure` | In stops |
 | `vignette` | Darkened corners |
 | `scan` | Scanlines four pixels apart |
-| `tape` | Lines jitter sideways, grain crawls, and a tracking band rolls down every six seconds, tearing the picture |
+| `tape` | The tape's texture: lines jitter sideways and grain crawls |
+| `track` | A tracking band rolls down every six seconds, tearing the lines it crosses sideways (up to 24 px at 1) |
 | `bleed` | Red and blue pulled apart sideways |
 
 The noise is a hash of the pixel and the frame's number, so a frame comes out the same every run.
@@ -197,12 +198,65 @@ Any item takes three placement options:
 ## Running it
 
 ```sh
+game --reel promo/clone-registry.reel                               # the preview: a window
 game --reel promo/clone-registry.reel --record out/clone-registry.mp4
 game --reel promo/clone-registry.reel --shot .tmp/r.png --at 2,12,18.5   # r-2.png, r-12.png, …
+game --reel promo/carousel.reel --shot out/card.png --at problem,sealed  # card-problem.png, …
 ```
 
-Every still comes with the kit's text report, in the reel's pixels. The game's own text is muted
-in it, because the game draws in its own points.
+`--quality share` encodes a copy for posting: CRF 26 instead of the master's near-lossless 16.
+The infomercial is 141 MB as a master and 9.1 MB shared, under Discord's 10 MB limit. UI text
+stays crisp and the tape grain is a little smoother. Keep the master for cutting and
+re-encoding.
+
+`--at` takes seconds, or a shot's name. A name takes that shot's last frame, where everything in
+it has come to rest. A set of cards is a reel with one short shot per card, taken by name.
+
+### The preview
+
+With neither `--record` nor `--shot`, the reel plays in a window in real time.
+
+| Key | Does |
+|---|---|
+| Space | Play or pause |
+| ← / → | Seek one second (five with Shift) |
+| `,` / `.` | Step one frame |
+| Home | Back to the start |
+| S | Toggle the safe area's outline. Text outside it is boxed in red as it plays |
+| R | Read the file again and keep the place |
+| Q / Esc | Quit |
+
+`R` is the edit loop: change the file, save, press R. A mistake in the file is shown at the top
+of the window, and the last good reel keeps playing.
+
+Seeking puts the game where the reel would have it. It replays the game, undrawn, from the first
+shot of the run of `continue` shots the moment is in.
+
+### Checks
+
+- **Missing glyphs.** Before anything is drawn, every string the reel sets is checked against its
+  style's font: text, labels, a browser's address and chips, and sheets' rows. A missing
+  character stops a recording or a still, naming its line:
+
+  ```text
+  clone-registry.reel:72: font `noto` has no ✓ (U+2713), which would draw as nothing
+  ```
+
+  The preview shows the same message instead of stopping.
+- **The safe area.** Declare `safe top=… right=… bottom=… left=…` in the reel. Text that rests
+  outside it is then reported:
+  - in each still's report, under "Reel checks";
+  - after a recording, as one line per item with the spans of time it was out;
+  - in the preview, boxed in red.
+
+  With `--fail-on-problems`, any of these exits 2.
+  - Text on its way in or out isn't held to the area while an action of its own or a parent's is
+    under way, because it passes through places it does not stay.
+  - `safe=ignore` exempts an item meant to leave the frame.
+
+Every still also comes with the kit's text report, in the reel's pixels. The game's own text is
+muted in it, because the game draws in its own points. A reel's text is written, not cut to fit,
+so a trailing "…" in it is not reported as cut short.
 
 A reel renders offline, so its text and the game's are drawn with the glyph gate open. Every
 glyph is cached as it is first drawn, and no caption is held back a frame.
@@ -226,11 +280,6 @@ never show its text at all; the opener found that.
 
 ## Next
 
-1. **The reel's own checks in the report:**
-   - text off the frame, or under a platform's safe margins;
-   - a glyph the font has not got. The app's Noto subset has no ✓ or ™, and both drew as
-     nothing.
-2. **A window preview** with scrubbing, a storybook story, and the CATALOG.
-3. **Sound.** An `audio FILE` line, muxed in the same encode, once there is music.
-4. **Stills for the carousel.** `SCRIPT.md` wants five 1080×1350 stills. That is a reel at that
-   size, or `--shot` on this one with a crop.
+1. **Sound.** An `audio FILE` line, muxed in the same encode, once there is music.
+2. **An `include` line,** if a second reel for the same game keeps copying the first's inks,
+   fonts and styles. `carousel.reel` beside the infomercial copies about 30 lines.

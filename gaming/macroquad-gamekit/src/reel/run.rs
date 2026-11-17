@@ -28,9 +28,9 @@ use crate::video::VideoWriter;
 enum Output {
     /// The whole reel, encoded (`--record out.mp4`).
     Video(String),
-    /// Stills at these seconds (`--shot out.png --at 2,12.5`): one, or one per time with the
-    /// time in its name (`out-12.5.png`).
-    Stills { path: String, at: Vec<f32> },
+    /// Stills at these moments (`--shot out.png --at 2,12.5,sealed`): one, or one per moment with
+    /// it in its name (`out-12.5.png`, `out-sealed.png`). See [`moments`].
+    Stills { path: String, at: Vec<String> },
     /// Nothing written: the reel played in a window.
     Preview,
 }
@@ -41,14 +41,11 @@ impl Output {
             (Some(path), None) => Ok(Output::Video(path.clone())),
             (None, Some(path)) => {
                 let at = harness::flag("--at")
-                    .ok_or("--reel with --shot needs --at, the seconds to take")?
+                    .ok_or("--reel with --shot needs --at: seconds, or shots' names")?
                     .split(',')
-                    .map(|s| {
-                        s.trim()
-                            .parse::<f32>()
-                            .map_err(|_| format!("--at: `{s}` is not a time"))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 Ok(Output::Stills {
                     path: path.clone(),
                     at,
@@ -60,15 +57,56 @@ impl Output {
     }
 }
 
-/// The still for `t` among `count`: the path itself for one, `name-T.png` for several.
-fn still_path(path: &str, t: f32, count: usize) -> String {
+/// A still asked for: what `--at` called it, and the frame it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Moment {
+    label: String,
+    frame: u32,
+}
+
+/// What `--at` asks for, as frames. A number is seconds into the reel; a shot's name is that
+/// shot's last frame, where everything in it has come to rest: a card's still.
+fn moments(reel: &Reel, at: &[String]) -> Result<Vec<Moment>, String> {
+    let frames = reel.frames();
+    at.iter()
+        .map(|token| {
+            let frame = match token.parse::<f32>() {
+                Ok(t) => (t * reel.fps as f32).round() as u32,
+                Err(_) => {
+                    let index = reel
+                        .shots
+                        .iter()
+                        .position(|s| s.name == *token)
+                        .ok_or_else(|| {
+                            format!("--at {token}: not a time, and no shot is called that")
+                        })?;
+                    let end: f32 = reel.shots[..=index].iter().map(|s| s.seconds).sum();
+                    ((end * reel.fps as f32).round() as u32).saturating_sub(1)
+                }
+            };
+            if frame >= frames {
+                return Err(format!(
+                    "--at {token}: the reel runs 0 to {}s",
+                    reel.seconds()
+                ));
+            }
+            Ok(Moment {
+                label: token.clone(),
+                frame,
+            })
+        })
+        .collect()
+}
+
+/// The still for `label` among `count`: the path itself for one, `name-LABEL.png` for several.
+fn still_path(path: &str, label: &str, count: usize) -> String {
     if count == 1 {
         return path.to_string();
     }
     let p = std::path::Path::new(path);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("reel");
     let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("png");
-    p.with_file_name(format!("{stem}-{t}.{ext}"))
+    p.with_file_name(format!("{stem}-{label}.{ext}"))
         .to_string_lossy()
         .into_owned()
 }
@@ -197,7 +235,13 @@ impl Canvas {
     }
 
     /// Draw `now` with the game's frame in it, graded if its shot is: the finished frame.
-    fn compose(&self, reel: &Reel, now: &Scene, game: Option<&Texture2D>, frame: u32) -> &RenderTarget {
+    fn compose(
+        &self,
+        reel: &Reel,
+        now: &Scene,
+        game: Option<&Texture2D>,
+        frame: u32,
+    ) -> &RenderTarget {
         set_camera(&target_camera(self.size, Vec2::ZERO, &self.target));
         // The report is of the reel's frame, in its pixels: the game's own text was muted.
         harness::report::begin_screen(self.size);
@@ -209,7 +253,8 @@ impl Canvas {
         let finished = match &reel.shots[now.shot].grade {
             Some(grade) => {
                 set_camera(&target_camera(self.size, Vec2::ZERO, &self.graded));
-                self.grader.draw(&self.target.texture, self.size, grade, frame);
+                self.grader
+                    .draw(&self.target.texture, self.size, grade, frame);
                 &self.graded
             }
             None => &self.target,
@@ -244,11 +289,10 @@ pub(crate) async fn run<G: Game>(player: Player<G>, args: &Args) -> ! {
     let path = args.reel.as_deref().expect("run is called for --reel");
     let reel = Reel::load(path).unwrap_or_else(|e| fail(e));
     let output = Output::from_args(args).unwrap_or_else(|e| fail(e));
-    if let Output::Stills { at, .. } = &output
-        && let Some(late) = at.iter().find(|&&t| t < 0.0 || t >= reel.seconds())
-    {
-        fail(format!("--at {late}: the reel runs 0 to {}s", reel.seconds()));
-    }
+    let wanted = match &output {
+        Output::Stills { at, .. } => moments(&reel, at).unwrap_or_else(|e| fail(e)),
+        _ => Vec::new(),
+    };
     let painter = Painter::load(&reel).unwrap_or_else(|e| fail(e));
     let glyphs = glyph_problems(&reel, &painter, path);
     harness::report::enable();
@@ -264,7 +308,9 @@ pub(crate) async fn run<G: Game>(player: Player<G>, args: &Args) -> ! {
         Output::Preview => preview(reel, canvas, director, glyphs).await,
         _ if !glyphs.is_empty() => fail(glyphs.join("\n")),
         Output::Video(out) => record(&reel, &canvas, &mut director, &out, args).await,
-        Output::Stills { path, at } => stills(&reel, &canvas, &mut director, &path, &at, args).await,
+        Output::Stills { path, .. } => {
+            stills(&reel, &canvas, &mut director, &path, &wanted, args).await
+        }
     }
 }
 
@@ -275,8 +321,14 @@ async fn record<G: Game>(
     out: &str,
     args: &Args,
 ) -> ! {
-    let mut writer = VideoWriter::open(out, reel.fps, reel.size.0 as u16, reel.size.1 as u16)
-        .unwrap_or_else(|e| fail(format!("{out}: {e}")));
+    let mut writer = VideoWriter::open(
+        out,
+        reel.fps,
+        reel.size.0 as u16,
+        reel.size.1 as u16,
+        args.quality,
+    )
+    .unwrap_or_else(|e| fail(format!("{out}: {e}")));
     let mut outside = Outside::default();
     let step = 1.0 / reel.fps as f32;
     for frame in 0..reel.frames() {
@@ -292,7 +344,9 @@ async fn record<G: Game>(
             .unwrap_or_else(|e| fail(format!("{out}: {e}")));
         next_frame().await;
     }
-    let frames = writer.finish().unwrap_or_else(|e| fail(format!("{out}: {e}")));
+    let frames = writer
+        .finish()
+        .unwrap_or_else(|e| fail(format!("{out}: {e}")));
     println!(
         "wrote {out} · {frames} frames at {} fps, {:.1}s, {}x{}",
         reel.fps,
@@ -315,15 +369,10 @@ async fn stills<G: Game>(
     canvas: &Canvas,
     director: &mut Director<'_, G>,
     path: &str,
-    at: &[f32],
+    at: &[Moment],
     args: &Args,
 ) -> ! {
-    let last = at
-        .iter()
-        .map(|t| (t * reel.fps as f32).round() as u32)
-        .max()
-        .unwrap_or(0)
-        .min(reel.frames().saturating_sub(1));
+    let last = at.iter().map(|m| m.frame).max().unwrap_or(0);
     let step = 1.0 / reel.fps as f32;
     let mut problems = false;
     for frame in 0..=last {
@@ -332,13 +381,13 @@ async fn stills<G: Game>(
         director.sync(reel, &now);
         let game = director.frame(reel, now.shot, step);
         let finished = canvas.compose(reel, &now, game.as_ref(), frame);
-        for &want in at {
-            if (want * reel.fps as f32).round() as u32 != frame {
-                continue;
-            }
-            let file = still_path(path, want, at.len());
+        for want in at.iter().filter(|m| m.frame == frame) {
+            let file = still_path(path, &want.label, at.len());
             let shot = &reel.shots[now.shot].name;
-            let note = format!("reel {} t={want}s [{shot}]", args.reel.as_deref().unwrap_or(""));
+            let note = format!(
+                "reel {} t={t:.2}s [{shot}]",
+                args.reel.as_deref().unwrap_or("")
+            );
             let report = harness::write_capture(&finished.texture, &file, &note)
                 .unwrap_or_else(|e| fail(format!("{file}: {e}")));
             let outside = canvas.outside(reel, &now);
@@ -503,7 +552,14 @@ async fn preview<G: Game>(
                 ..Default::default()
             },
         );
-        let in_window = |a: Area| Rect::new(origin.x + a.x * scale, origin.y + a.y * scale, a.w * scale, a.h * scale);
+        let in_window = |a: Area| {
+            Rect::new(
+                origin.x + a.x * scale,
+                origin.y + a.y * scale,
+                a.w * scale,
+                a.h * scale,
+            )
+        };
         if show_safe && let Some(safe) = reel.safe {
             let s = in_window(safe.inside(reel.size));
             draw_rectangle_lines(s.x, s.y, s.w, s.h, 1.0, Color::new(1.0, 1.0, 1.0, 0.35));
@@ -515,7 +571,7 @@ async fn preview<G: Game>(
         let state = if playing { "playing" } else { "paused" };
         let shot = &reel.shots[now.shot].name;
         draw_text(
-            &format!(
+            format!(
                 "{t:6.2}s / {:.1}s  [{shot}]  {state}  ·  space  ←/→ (shift ×5)  , .  home  S safe  R reload  Q quit",
                 reel.seconds()
             ),
@@ -526,7 +582,11 @@ async fn preview<G: Game>(
         );
         let mut status = notes.clone();
         status.extend(outside.iter().map(|d| {
-            format!("line {}: outside the safe area: {:?}", d.line, check::short(&d.text))
+            format!(
+                "line {}: outside the safe area: {:?}",
+                d.line,
+                check::short(&d.text)
+            )
         }));
         if let Some(first) = status.first() {
             let more = if status.len() > 1 {
@@ -535,7 +595,7 @@ async fn preview<G: Game>(
                 String::new()
             };
             draw_text(
-                &format!("{first}{more}"),
+                format!("{first}{more}"),
                 10.0,
                 42.0,
                 16.0,
@@ -552,7 +612,39 @@ mod tests {
 
     #[test]
     fn several_stills_are_named_by_their_time() {
-        assert_eq!(still_path(".tmp/r.png", 2.0, 1), ".tmp/r.png");
-        assert_eq!(still_path(".tmp/r.png", 12.5, 3), ".tmp/r-12.5.png");
+        assert_eq!(still_path(".tmp/r.png", "2", 1), ".tmp/r.png");
+        assert_eq!(still_path(".tmp/r.png", "12.5", 3), ".tmp/r-12.5.png");
+        assert_eq!(
+            still_path("out/card.png", "sealed", 5),
+            "out/card-sealed.png"
+        );
+    }
+
+    #[test]
+    fn a_shots_name_is_its_last_frame_and_a_number_is_seconds() {
+        let reel = Reel::parse("reel 10x10 30\n[problem] 2\n[sealed] 3").unwrap();
+        let at = |s: &[&str]| moments(&reel, &s.iter().map(|t| t.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            at(&["problem", "sealed", "2.5"]).unwrap(),
+            [
+                Moment {
+                    label: "problem".into(),
+                    frame: 59
+                },
+                Moment {
+                    label: "sealed".into(),
+                    frame: 149
+                },
+                Moment {
+                    label: "2.5".into(),
+                    frame: 75
+                },
+            ]
+        );
+        assert_eq!(
+            at(&["finale"]).unwrap_err(),
+            "--at finale: not a time, and no shot is called that"
+        );
+        assert_eq!(at(&["9"]).unwrap_err(), "--at 9: the reel runs 0 to 5s");
     }
 }

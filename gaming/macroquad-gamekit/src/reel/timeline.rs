@@ -351,7 +351,11 @@ mod tests {
         };
         assert_eq!(motion(1.2), Some(Motion::Moving), "slamming in");
         assert_eq!(motion(2.0), Some(Motion::Resting));
-        assert_eq!(motion(4.5), Some(Motion::Moving), "its phone is moving it: two legs");
+        assert_eq!(
+            motion(4.5),
+            Some(Motion::Moving),
+            "its phone is moving it: two legs"
+        );
         assert_eq!(motion(5.0), Some(Motion::Resting));
     }
 

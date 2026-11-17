@@ -347,6 +347,9 @@ pub struct Args {
     pub reel: Option<String>,
     /// `--record out.mp4` with `--reel`: encode the whole reel to this file.
     pub record: Option<String>,
+    /// `--quality master|share`: how hard a video is compressed (master when not given); see
+    /// [`Quality`](crate::video::Quality).
+    pub quality: crate::video::Quality,
     /// `--px 3`: device pixels per design unit for a capture, whatever the
     /// window's. A headless or 1× display captures at 1, where a 36-pixel
     /// sprite is a smudge; text is rasterised at this scale too, so it stays
@@ -561,6 +564,14 @@ impl Args {
             plan: flag_in(argv, "--plan"),
             reel: flag_in(argv, "--reel"),
             record: flag_in(argv, "--record"),
+            quality: flag_in(argv, "--quality")
+                .map(|q| {
+                    crate::video::Quality::parse(&q).unwrap_or_else(|| {
+                        eprintln!("--quality {q}: master or share");
+                        std::process::exit(2)
+                    })
+                })
+                .unwrap_or_default(),
             px: flag_in(argv, "--px")
                 .and_then(|v| v.parse::<f32>().ok())
                 .filter(|p| *p > 0.0 && *p <= 8.0),

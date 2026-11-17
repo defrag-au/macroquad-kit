@@ -1,8 +1,8 @@
 //! A [`Grade`] laid over a finished frame: one shader pass from the frame's target into another.
 //!
 //! The look of a dubbed VHS infomercial, in controls a reel names: black and white, contrast,
-//! exposure, a vignette, scanlines, a worn tape (lines jittering sideways, grain, a tracking band
-//! rolling down the picture) and colour bled sideways. The noise is a hash of the pixel and the
+//! exposure, a vignette, scanlines, a worn tape (lines jittering sideways, grain), a tracking
+//! band rolling down the picture and tearing what it crosses, and colour bled sideways. The noise is a hash of the pixel and the
 //! frame's number, never a random source, so a frame comes out the same every run.
 
 use macroquad::prelude::*;
@@ -41,6 +41,7 @@ uniform float Exposure;
 uniform float Vignette;
 uniform float Scan;
 uniform float Tape;
+uniform float Track;
 uniform float Bleed;
 
 float hash(vec2 p) {
@@ -50,14 +51,15 @@ float hash(vec2 p) {
 void main() {
     vec2 px = uv * Size;
 
-    // A worn tape: each band of three lines slides sideways a little, differently every frame,
-    // and a tracking band rolls down the picture every six seconds, tearing the lines in it.
+    // A worn tape: each band of three lines slides sideways a little, differently every frame.
+    // A tracking band rolls down the picture every six seconds, tearing the lines in it: up to
+    // 24 px at Track 1.
     float line = floor(px.y / 3.0);
     float wobble = hash(vec2(line, Frame)) - 0.5;
     float roll = fract(Frame / 180.0);
     float band = smoothstep(0.05, 0.0, abs(uv.y - roll));
     float tear = band * 24.0 * hash(vec2(line, Frame + 7.0));
-    vec2 at = uv + vec2(Tape * (wobble * 3.0 + tear) / Size.x, 0.0);
+    vec2 at = uv + vec2((Tape * wobble * 3.0 + Track * tear) / Size.x, 0.0);
 
     // Colour bled sideways: red one way, blue the other.
     float off = Bleed * 6.0 / Size.x;
@@ -74,7 +76,7 @@ void main() {
 
     // Grain, and the tracking band a shade brighter.
     c += (hash(px + vec2(Frame * 1.7, Frame)) - 0.5) * Tape * 0.16;
-    c += band * Tape * 0.12;
+    c += band * Track * 0.12;
 
     // Scanlines four pixels apart.
     float gap = 0.5 + 0.5 * cos(px.y * 3.14159265 * 0.5);
@@ -108,6 +110,7 @@ impl Grader {
                     ("Vignette", UniformType::Float1),
                     ("Scan", UniformType::Float1),
                     ("Tape", UniformType::Float1),
+                    ("Track", UniformType::Float1),
                     ("Bleed", UniformType::Float1),
                 ]
                 .into_iter()
@@ -133,6 +136,7 @@ impl Grader {
         m.set_uniform("Vignette", grade.vignette);
         m.set_uniform("Scan", grade.scan);
         m.set_uniform("Tape", grade.tape);
+        m.set_uniform("Track", grade.track);
         m.set_uniform("Bleed", grade.bleed);
         gl_use_material(m);
         draw_texture_ex(

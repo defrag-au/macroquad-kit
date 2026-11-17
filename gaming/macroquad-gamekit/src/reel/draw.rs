@@ -328,7 +328,12 @@ impl Painter {
                     return None;
                 };
                 let (parents, own) = self.matrices(layer, frame, scene.game);
-                let placed = self.bounds(layer.item, layer.parents.last().map(|p| p.0), frame, scene.game);
+                let placed = self.bounds(
+                    layer.item,
+                    layer.parents.last().map(|p| p.0),
+                    frame,
+                    scene.game,
+                );
                 let mut seen = carried_box(parents * own, placed);
                 if let Some(window) = layer.item.within {
                     seen = seen.intersect(rect_of(window))?;

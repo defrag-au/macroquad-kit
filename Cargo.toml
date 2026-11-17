@@ -58,26 +58,26 @@ macroquad-widgets = { path = "ui/macroquad-widgets" }
 # One rev, shared by every entry below and kept in step with each consuming
 # repo's own `shared-crates` pin. Bump every entry together, then bump each
 # consumer to match.
-ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-chains = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-cnft-holdings = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-image-core = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-miniquad-platform = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-wallet-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-discord-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-wallet-link-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
+ui-theme = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+chains = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+perf-probe = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+cnft-holdings = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+image-core = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+miniquad-platform = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+wallet-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+discord-miniquad = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+wallet-link-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
 # The `chain` widgets' only dependency, and off by default in the widgets.
-chain-heartbeat = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd", default-features = false }
-discord-auth = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-arcade-core = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-arcade-room = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-scenegraph = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-scenegraph-mq = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
-sceneinput = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd" }
+chain-heartbeat = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e", default-features = false }
+discord-auth = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+arcade-core = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+arcade-room = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+scenegraph = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+scenegraph-mq = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
+sceneinput = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e" }
 # `mq-flow-probe`'s transport. Default features off: the web-sys transport
 # pulls wasm-bindgen, which miniquad cannot host.
-ui-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "b5cc335a21379f05720ce7755c2656c1e5acbffd", default-features = false }
+ui-flow = { git = "https://github.com/defrag-au/shared-crates", rev = "427e4eaafa5563c3f768ed93b9c7afc7bd92772e", default-features = false }
 
 # macroquad's glyph-atlas packing fix (upstream 8d602d3, "text: avoid spurious
 # font atlas growth"), which landed after 0.4.16. A glyph landing within 2 px of

@@ -63,7 +63,10 @@ pub fn settings(reel: &Reel) -> Vec<Setting<'_>> {
     out.into_iter()
         .map(|(line, style, text)| Setting {
             line,
-            style: reel.styles.get_key_value(&style).map_or("", |(k, _)| k.as_str()),
+            style: reel
+                .styles
+                .get_key_value(&style)
+                .map_or("", |(k, _)| k.as_str()),
             text,
         })
         .collect()
@@ -134,8 +137,12 @@ pub fn outside(safe: Area, drawn: &[Drawn]) -> Vec<&Drawn> {
 /// each span of time its text was outside.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Outside {
-    found: BTreeMap<(usize, usize), (String, Vec<[f32; 2]>)>,
+    /// By shot and line.
+    found: BTreeMap<(usize, usize), Stray>,
 }
+
+/// One item's text outside the safe area: what it says, and each span of seconds it was out.
+type Stray = (String, Vec<[f32; 2]>);
 
 impl Outside {
     /// Note this frame's text outside the safe area, in shot `shot` at `t` seconds, frames
@@ -209,8 +216,14 @@ phone @ph at=0,0 width=100 blank=9x16 label="It's ™" chip=cap
         assert_eq!(
             missing,
             vec![
-                (6, "font `noto` has no ✓ (U+2713), which would draw as nothing".to_string()),
-                (8, "font `noto` has no ™ (U+2122), which would draw as nothing".to_string()),
+                (
+                    6,
+                    "font `noto` has no ✓ (U+2713), which would draw as nothing".to_string()
+                ),
+                (
+                    8,
+                    "font `noto` has no ™ (U+2122), which would draw as nothing".to_string()
+                ),
             ]
         );
     }
@@ -224,11 +237,21 @@ phone @ph at=0,0 width=100 blank=9x16 label="It's ™" chip=cap
 
     #[test]
     fn text_past_a_margin_is_outside_and_gathered_by_line() {
-        let safe = Area { x: 60.0, y: 220.0, w: 900.0, h: 1320.0 };
+        let safe = Area {
+            x: 60.0,
+            y: 220.0,
+            w: 900.0,
+            h: 1320.0,
+        };
         let at = |y: f32| Drawn {
             line: 7,
             text: "Two chains.\nTwo wallets.".into(),
-            area: Area { x: 100.0, y, w: 800.0, h: 100.0 },
+            area: Area {
+                x: 100.0,
+                y,
+                w: 800.0,
+                h: 100.0,
+            },
         };
         let drawn = [at(500.0), at(1500.0)];
         let out = outside(safe, &drawn);
@@ -244,7 +267,9 @@ phone @ph at=0,0 width=100 blank=9x16 label="It's ™" chip=cap
         found.note(0, 2.5, step, &out);
         assert_eq!(
             found.lines(&reel, "promo.reel"),
-            ["promo.reel:7: text outside the safe area in [problem], 1.00s to 1.50s, 2.50s to 2.50s: \"Two chains. Two wallets.\""]
+            [
+                "promo.reel:7: text outside the safe area in [problem], 1.00s to 1.50s, 2.50s to 2.50s: \"Two chains. Two wallets.\""
+            ]
         );
     }
 }
