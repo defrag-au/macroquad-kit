@@ -64,6 +64,8 @@ pub struct Reel {
     pub fonts: BTreeMap<String, String>,
     /// Named sounds and their paths (`sound whoosh app/audio/whoosh.wav`).
     pub sounds: BTreeMap<String, String>,
+    /// Named fragment shaders and their paths (`shader tube app/promo/tube.frag`).
+    pub shaders: BTreeMap<String, String>,
     /// Named text styles (`style cap noto 46 #ffffff em=gold centre wrap=860`).
     pub styles: BTreeMap<String, Style>,
     /// Where text may go without a platform's own buttons and captions covering it
@@ -317,6 +319,9 @@ pub enum Look {
         fit: Fit,
         area: Option<Area>,
         radius: f32,
+        /// The shader it is drawn through (`shader=tube`): a `shader` line's name. The image
+        /// then covers its box square-cornered, and the shader is handed the picture's own uv.
+        shader: Option<String>,
     },
     /// A rectangle, filled, outlined or both: a full-frame banner, a border around a card.
     Rect {
@@ -893,6 +898,7 @@ struct Parser {
     images: BTreeMap<String, String>,
     fonts: BTreeMap<String, String>,
     sounds: BTreeMap<String, String>,
+    shaders: BTreeMap<String, String>,
     styles: BTreeMap<String, Style>,
     grades: BTreeMap<String, Grade>,
     safe: Option<Insets>,
@@ -946,6 +952,7 @@ impl Parser {
             images: self.images,
             fonts: self.fonts,
             sounds: self.sounds,
+            shaders: self.shaders,
             styles: self.styles,
             safe: self.safe,
             shots: self.shots,
@@ -1161,13 +1168,14 @@ impl Parser {
                 words.done("ink", &[])
             }
             // Before the first shot, `image NAME PATH` names a file; in a shot, `image` places one.
-            "font" | "image" | "sound" if self.shots.is_empty() => {
+            "font" | "image" | "sound" | "shader" if self.shots.is_empty() => {
                 let [name, path] = &positional[..] else {
                     return Err(err(line, format!("write `{keyword} NAME PATH`")));
                 };
                 let map = match keyword {
                     "font" => &mut self.fonts,
                     "image" => &mut self.images,
+                    "shader" => &mut self.shaders,
                     _ => &mut self.sounds,
                 };
                 if map.insert(name.clone(), path.clone()).is_some() {
@@ -1175,6 +1183,10 @@ impl Parser {
                 }
                 words.done(keyword, &[])
             }
+            "shader" => Err(err(
+                line,
+                "a shader is named before the first shot: `shader NAME PATH`",
+            )),
             "style" => self.style(line, words),
             "grade" => self.grade(line, words),
             "safe" => self.safe(line, words),
@@ -1520,15 +1532,35 @@ impl Parser {
                     .map(|r| number(line, "radius", &r))
                     .transpose()?
                     .unwrap_or(0.0);
+                let shader = words.take("shader");
+                if let Some(shader) = &shader {
+                    if !self.shaders.contains_key(shader) {
+                        return Err(err(
+                            line,
+                            format!(
+                                "no shader called `{shader}`; name it with `shader {shader} PATH` before the first shot"
+                            ),
+                        ));
+                    }
+                    if radius > 0.0 {
+                        return Err(err(
+                            line,
+                            "a shader draws the image square-cornered, so it takes no `radius`",
+                        ));
+                    }
+                }
                 words.done(
                     "image",
-                    &["fit", "at", "size", "radius", "in", "rot", "within"],
+                    &[
+                        "fit", "at", "size", "radius", "shader", "in", "rot", "within",
+                    ],
                 )?;
                 Look::Image {
                     image: image.clone(),
                     fit,
                     area,
                     radius,
+                    shader,
                 }
             }
             "rect" => self.rect(line, words)?,
@@ -2568,6 +2600,43 @@ text @roll url at=110,1490 within=110,290,860x1160 "fine print"
                 name: "whoosh".into(),
                 volume: 0.6
             }]
+        );
+    }
+
+    #[test]
+    fn an_image_may_be_drawn_through_a_shader_named_before_the_first_shot() {
+        let reel = Reel::parse(
+            "reel 100x100 30\nimage art app/art.jpg\nshader tube app/promo/tube.frag\n[a] 2\nimage @art art at=0,0 size=100x100 shader=tube",
+        )
+        .unwrap();
+        assert_eq!(reel.shaders["tube"], "app/promo/tube.frag");
+        assert!(matches!(
+            reel.shots[0].items[0].look,
+            Look::Image {
+                shader: Some(ref name),
+                ..
+            } if name == "tube"
+        ));
+    }
+
+    #[test]
+    fn a_shader_must_be_named_before_it_is_used_and_draws_square_corners() {
+        let head =
+            "reel 10x10 30\nimage art app/art.jpg\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n";
+        assert_eq!(
+            error(&format!("{head}image art at=0,0 size=8x8 shader=tube")),
+            "line 5: no shader called `tube`; name it with `shader tube PATH` before the first shot"
+        );
+        assert_eq!(
+            error("reel 10x10 30\n[a] 2\nshader tube app/tube.frag"),
+            "line 3: a shader is named before the first shot: `shader NAME PATH`"
+        );
+        let named = "reel 10x10 30\nimage art app/art.jpg\nshader tube app/tube.frag\n[a] 2\n";
+        assert_eq!(
+            error(&format!(
+                "{named}image art at=0,0 size=8x8 radius=8 shader=tube"
+            )),
+            "line 5: a shader draws the image square-cornered, so it takes no `radius`"
         );
     }
 

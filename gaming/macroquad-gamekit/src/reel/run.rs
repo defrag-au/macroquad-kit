@@ -234,6 +234,15 @@ impl Canvas {
         }
     }
 
+    /// Fill every font atlas the reel's text will use, before the first frame: see
+    /// [`Painter::warm`]. It draws outside the frame, so nothing reaches the picture.
+    fn warm(&self, reel: &Reel) {
+        set_camera(&target_camera(self.size, Vec2::ZERO, &self.target));
+        clear_background(BLACK);
+        crate::text::ungated(|| harness::report::muted(|| self.painter.warm(reel)));
+        set_default_camera();
+    }
+
     /// Draw `now` with the game's frame in it, graded if its shot is: the finished frame.
     fn compose(
         &self,
@@ -304,6 +313,7 @@ pub(crate) async fn run<G: Game>(player: Player<G>, args: &Args) -> ! {
     };
     director.player.settle().await;
     let canvas = Canvas::new(&reel, painter);
+    canvas.warm(&reel);
     match output {
         Output::Preview => preview(reel, canvas, director, glyphs).await,
         _ if !glyphs.is_empty() => fail(glyphs.join("\n")),

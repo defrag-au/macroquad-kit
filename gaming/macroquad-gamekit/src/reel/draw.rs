@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 #[cfg(not(target_arch = "wasm32"))]
 use image as _;
 
+use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Equation, PipelineParams};
 use macroquad::models::{Mesh, Vertex, draw_mesh};
 use macroquad::prelude::*;
 
@@ -21,11 +22,31 @@ use super::file::{
 };
 use super::timeline::{Layer, Motion, Scene};
 use crate::clip::with_clip;
-use crate::shape::{Finish, RoundedArt, fill_rounded, stroke_rounded};
+use crate::shape::{Finish, RoundedArt, cover_source, fill_rounded, stroke_rounded};
 // The kit's exact circles, not macroquad's polygon approximation; the explicit
 // import shadows the one `macroquad::prelude::*` brings in.
-use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
 use crate::text::{self, MeasureAt, RichText, TextLayout, TextStyle};
+use macroquad_widgets::shape::{draw_circle, draw_circle_lines};
+
+/// What a reel's own fragment shader is paired with: the picture, its own uv, and the item's
+/// tint and alpha. `uv` is the whole picture's, whatever crop the frame shows, so a shader's
+/// measurements against the picture hold wherever the frame puts it.
+const EFFECT_VERTEX: &str = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+
+varying highp vec2 uv;
+varying lowp vec4 color;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    color = color0 / 255.0;
+    uv = texcoord;
+}"#;
 
 /// A phone's frame around a screen of a given shape.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -275,6 +296,8 @@ pub struct Painter {
     outlines: BTreeMap<String, fontdue::Font>,
     styles: BTreeMap<String, Style>,
     art: RoundedArt,
+    /// The reel's own fragment shaders, by name: what an `image … shader=` is drawn through.
+    effects: BTreeMap<String, Material>,
 }
 
 impl Painter {
@@ -301,12 +324,38 @@ impl Painter {
             fonts.insert(name.clone(), font);
             outlines.insert(name.clone(), outline);
         }
+        let mut effects = BTreeMap::new();
+        for (name, path) in &reel.shaders {
+            let fragment = std::fs::read_to_string(path)
+                .map_err(|e| format!("shader `{name}` ({path}): {e}"))?;
+            let material = load_material(
+                ShaderSource::Glsl {
+                    vertex: EFFECT_VERTEX,
+                    fragment: &fragment,
+                },
+                MaterialParams {
+                    uniforms: vec![UniformDesc::new("Time", UniformType::Float1)],
+                    pipeline_params: PipelineParams {
+                        color_blend: Some(BlendState::new(
+                            Equation::Add,
+                            BlendFactor::Value(BlendValue::SourceAlpha),
+                            BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                        )),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| format!("shader `{name}` ({path}): {e:?}"))?;
+            effects.insert(name.clone(), material);
+        }
         Ok(Painter {
             images,
             fonts,
             outlines,
             styles: reel.styles.clone(),
             art: RoundedArt::new(),
+            effects,
         })
     }
 
@@ -397,6 +446,22 @@ impl Painter {
         Set { rich, layout }
     }
 
+    /// Cache every glyph the reel will set, before the first frame is drawn.
+    ///
+    /// macroquad re-uploads a font's whole atlas as soon as a glyph is cached, and a glyph cached
+    /// mid-frame lands under quads already queued for that frame: the scoreboard's 260-point "6"
+    /// came out as a cluster of the 12-point glyphs cached beside it. A reel draws ungated so no
+    /// caption waits a frame, so the atlas is filled here, once, instead.
+    pub fn warm(&self, reel: &Reel) {
+        for setting in super::check::settings(reel) {
+            if self.styles.contains_key(setting.style) {
+                let set = self.set(setting.style, &setting.text, None, None);
+                // Off the frame: the quads are clipped, but the glyphs are still rasterised.
+                set.draw(vec2(0.0, -10_000.0), 1.0);
+            }
+        }
+    }
+
     /// Draw `scene` over a frame of `size` pixels. `game` is the game's finished frame, if the
     /// shot has one.
     pub fn draw(&self, scene: &Scene, size: Vec2, game: Option<&Texture2D>) {
@@ -482,14 +547,19 @@ impl Painter {
                 fit,
                 area,
                 radius,
+                shader,
             } => {
                 if let Some(texture) = self.images.get(image) {
-                    match area {
-                        Some(area) => {
+                    match (shader, area) {
+                        (Some(shader), _) => {
+                            let dest = area.map_or(frame, rect_of);
+                            self.effect(shader, texture, dest, alpha, scene.time);
+                        }
+                        (None, Some(area)) => {
                             let tint = Color::new(1.0, 1.0, 1.0, alpha);
                             self.art.draw(texture, rect_of(*area), *radius, tint);
                         }
-                        None => self.image(texture, frame, *fit, alpha),
+                        (None, None) => self.image(texture, frame, *fit, alpha),
                     }
                 }
             }
@@ -705,6 +775,28 @@ impl Painter {
             pad,
             radius: 36.0 * k,
         }
+    }
+
+    /// `texture` covering `dest` through one of the reel's shaders, on the reel's own clock: a
+    /// still at 6.4 s is the frame the video has at 6.4 s, never the wall clock's.
+    fn effect(&self, name: &str, texture: &Texture2D, dest: Rect, alpha: f32, time: f32) {
+        let material = &self.effects[name];
+        let tex = vec2(texture.width(), texture.height());
+        let src = cover_source(tex, dest.size());
+        material.set_uniform("Time", time);
+        gl_use_material(material);
+        draw_texture_ex(
+            texture,
+            dest.x,
+            dest.y,
+            Color::new(1.0, 1.0, 1.0, alpha),
+            DrawTextureParams {
+                dest_size: Some(dest.size()),
+                source: Some(src),
+                ..Default::default()
+            },
+        );
+        gl_use_default_material();
     }
 
     fn image(&self, texture: &Texture2D, frame: Rect, fit: Fit, alpha: f32) {

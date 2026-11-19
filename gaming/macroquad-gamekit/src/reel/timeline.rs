@@ -18,6 +18,9 @@ pub struct Scene<'a> {
     pub shot: usize,
     /// Seconds into that shot.
     pub local: f32,
+    /// Seconds from the reel's start: what a shader animates with, so it runs on through a cut
+    /// rather than restarting at one.
+    pub time: f32,
     /// The shot's game viewport in points, if it has a game.
     pub game: Option<(u32, u32)>,
     /// The items showing, back first, each in its pose now.
@@ -104,6 +107,7 @@ pub fn scene(reel: &Reel, t: f32) -> Scene<'_> {
     Scene {
         shot: index,
         local,
+        time: t,
         game: shot.game.as_ref().map(|g| g.size),
         layers,
         veil: veil(reel, index, local),
