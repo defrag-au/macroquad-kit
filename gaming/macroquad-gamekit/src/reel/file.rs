@@ -62,6 +62,10 @@ pub struct Reel {
     pub images: BTreeMap<String, String>,
     /// Named fonts and their paths (`font noto app/assets/Noto.ttf`).
     pub fonts: BTreeMap<String, String>,
+    /// Named sounds and their paths (`sound whoosh app/audio/whoosh.wav`).
+    pub sounds: BTreeMap<String, String>,
+    /// Named fragment shaders and their paths (`shader tube app/promo/tube.frag`).
+    pub shaders: BTreeMap<String, String>,
     /// Named text styles (`style cap noto 46 #ffffff em=gold centre wrap=860`).
     pub styles: BTreeMap<String, Style>,
     /// Where text may go without a platform's own buttons and captions covering it
@@ -198,6 +202,8 @@ pub struct Shot {
     pub items: Vec<Item>,
     /// In time order; actions at the same moment keep their file order.
     pub actions: Vec<Action>,
+    /// In time order: the sounds that start during it.
+    pub sounds: Vec<Cue>,
     /// A look over the whole shot, once it is drawn (`grade=vhs`): the shot's frame goes through
     /// it as one pass, its items and the game's screen together.
     pub grade: Option<Grade>,
@@ -313,6 +319,9 @@ pub enum Look {
         fit: Fit,
         area: Option<Area>,
         radius: f32,
+        /// The shader it is drawn through (`shader=tube`): a `shader` line's name. The image
+        /// then covers its box square-cornered, and the shader is handed the picture's own uv.
+        shader: Option<String>,
     },
     /// A rectangle, filled, outlined or both: a full-frame banner, a border around a card.
     Rect {
@@ -422,6 +431,30 @@ pub struct Action {
     /// The item's name, without the `@`.
     pub item: String,
     pub verb: Verb,
+    /// A sound that starts when the action does (`0.3 enter @n slam sound=whoosh`), so retiming
+    /// the action takes its sound with it.
+    pub sound: Option<SoundCue>,
+}
+
+/// A sound an action or a cue starts: its name, and how loud.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoundCue {
+    /// A sound named by a `sound` line.
+    pub name: String,
+    /// 1.0 is the file as it is. Levels add up, so a cue over a bed wants less than 1.
+    pub volume: f32,
+}
+
+/// A sound started at a moment of its shot, with no item to move (`0.4 sound whoosh volume=0.6`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cue {
+    pub line: usize,
+    /// Seconds into the shot.
+    pub at: f32,
+    /// The sound's name, as a `sound` line named it.
+    pub name: String,
+    /// 1.0 is the file as it is. Levels add up, so a cue over a bed wants less than 1.
+    pub volume: f32,
 }
 
 /// What an action does.
@@ -864,6 +897,8 @@ struct Parser {
     inks: BTreeMap<String, Rgba>,
     images: BTreeMap<String, String>,
     fonts: BTreeMap<String, String>,
+    sounds: BTreeMap<String, String>,
+    shaders: BTreeMap<String, String>,
     styles: BTreeMap<String, Style>,
     grades: BTreeMap<String, Grade>,
     safe: Option<Insets>,
@@ -908,6 +943,7 @@ impl Parser {
             check(shot)?;
             // Stable: actions at one moment keep their order in the file.
             shot.actions.sort_by(|a, b| a.at.total_cmp(&b.at));
+            shot.sounds.sort_by(|a, b| a.at.total_cmp(&b.at));
         }
         Ok(Reel {
             size,
@@ -915,6 +951,8 @@ impl Parser {
             inks: self.inks,
             images: self.images,
             fonts: self.fonts,
+            sounds: self.sounds,
+            shaders: self.shaders,
             styles: self.styles,
             safe: self.safe,
             shots: self.shots,
@@ -1130,20 +1168,25 @@ impl Parser {
                 words.done("ink", &[])
             }
             // Before the first shot, `image NAME PATH` names a file; in a shot, `image` places one.
-            "font" | "image" if self.shots.is_empty() => {
+            "font" | "image" | "sound" | "shader" if self.shots.is_empty() => {
                 let [name, path] = &positional[..] else {
                     return Err(err(line, format!("write `{keyword} NAME PATH`")));
                 };
-                let map = if keyword == "font" {
-                    &mut self.fonts
-                } else {
-                    &mut self.images
+                let map = match keyword {
+                    "font" => &mut self.fonts,
+                    "image" => &mut self.images,
+                    "shader" => &mut self.shaders,
+                    _ => &mut self.sounds,
                 };
                 if map.insert(name.clone(), path.clone()).is_some() {
                     return Err(err(line, format!("a second {keyword} called `{name}`")));
                 }
                 words.done(keyword, &[])
             }
+            "shader" => Err(err(
+                line,
+                "a shader is named before the first shot: `shader NAME PATH`",
+            )),
             "style" => self.style(line, words),
             "grade" => self.grade(line, words),
             "safe" => self.safe(line, words),
@@ -1198,6 +1241,7 @@ impl Parser {
             game: None,
             items: Vec::new(),
             actions: Vec::new(),
+            sounds: Vec::new(),
             grade,
         });
         Ok(())
@@ -1488,15 +1532,35 @@ impl Parser {
                     .map(|r| number(line, "radius", &r))
                     .transpose()?
                     .unwrap_or(0.0);
+                let shader = words.take("shader");
+                if let Some(shader) = &shader {
+                    if !self.shaders.contains_key(shader) {
+                        return Err(err(
+                            line,
+                            format!(
+                                "no shader called `{shader}`; name it with `shader {shader} PATH` before the first shot"
+                            ),
+                        ));
+                    }
+                    if radius > 0.0 {
+                        return Err(err(
+                            line,
+                            "a shader draws the image square-cornered, so it takes no `radius`",
+                        ));
+                    }
+                }
                 words.done(
                     "image",
-                    &["fit", "at", "size", "radius", "in", "rot", "within"],
+                    &[
+                        "fit", "at", "size", "radius", "shader", "in", "rot", "within",
+                    ],
                 )?;
                 Look::Image {
                     image: image.clone(),
                     fit,
                     area,
                     radius,
+                    shader,
                 }
             }
             "rect" => self.rect(line, words)?,
@@ -1738,6 +1802,38 @@ impl Parser {
                 at,
                 item: target,
                 verb: Verb::Set(text),
+                sound: None,
+            });
+            return Ok(());
+        }
+        // A sound is cued without an item: `0.4 sound whoosh [volume=0.6]`.
+        if verb.text == "sound" {
+            let mut words = Words::new(line, rest)?;
+            let positional = words.texts();
+            let [sound] = &positional[..] else {
+                return Err(err(line, "write `TIME sound NAME [volume=0.6]`"));
+            };
+            if !self.sounds.contains_key(sound) {
+                return Err(err(
+                    line,
+                    format!(
+                        "no sound called `{sound}`; name it with a `sound {sound} PATH` line before the first shot"
+                    ),
+                ));
+            }
+            let volume = match words.take("volume") {
+                None => 1.0,
+                Some(v) => number(line, "volume", &v)?,
+            };
+            if !(0.0..=2.0).contains(&volume) {
+                return Err(err(line, format!("`volume={volume}`: 0 to 2")));
+            }
+            words.done("sound", &["volume"])?;
+            self.shot(line)?.sounds.push(Cue {
+                line,
+                at,
+                name: sound.clone(),
+                volume,
             });
             return Ok(());
         }
@@ -1749,6 +1845,32 @@ impl Parser {
             )
         })?;
         let positional = words.texts();
+        // An effect can ride an action (`0.3 enter @n slam sound=whoosh`): it starts when the
+        // action does, so retiming the action takes its sound with it.
+        let sound = match words.take("sound") {
+            None => None,
+            Some(name) => {
+                if !self.sounds.contains_key(&name) {
+                    return Err(err(
+                        line,
+                        format!(
+                            "no sound called `{name}`; name it with a `sound {name} PATH` line before the first shot"
+                        ),
+                    ));
+                }
+                let volume = match words.take("volume") {
+                    None => 1.0,
+                    Some(v) => number(line, "volume", &v)?,
+                };
+                if !(0.0..=2.0).contains(&volume) {
+                    return Err(err(line, format!("`volume={volume}`: 0 to 2")));
+                }
+                Some(SoundCue { name, volume })
+            }
+        };
+        if words.take("volume").is_some() {
+            return Err(err(line, "`volume=` goes with `sound=`"));
+        }
         let verb = match verb.text.as_str() {
             kind @ ("enter" | "exit") => {
                 let (preset, seconds) = match &positional[..] {
@@ -1850,6 +1972,7 @@ impl Parser {
             at,
             item,
             verb,
+            sound,
         });
         Ok(())
     }
@@ -2004,6 +2127,17 @@ fn check(shot: &Shot) -> Result<(), ReelError> {
                 format!(
                     "at {}s, after shot `{}` ends at {}s",
                     action.at, shot.name, shot.seconds
+                ),
+            ));
+        }
+    }
+    for cue in &shot.sounds {
+        if cue.at >= shot.seconds {
+            return Err(err(
+                cue.line,
+                format!(
+                    "at {}s, after shot `{}` ends at {}s",
+                    cue.at, shot.name, shot.seconds
                 ),
             ));
         }
@@ -2449,5 +2583,105 @@ text @roll url at=110,1490 within=110,290,860x1160 "fine print"
             ..Delta::NONE
         });
         assert_eq!((both.y, both.scale, both.alpha), (25.0, 4.0, 0.0));
+    }
+
+    #[test]
+    fn sounds_are_named_before_the_first_shot_and_cued_at_a_time() {
+        let reel = Reel::parse(
+            "reel 100x100 30\nsound whoosh app/audio/whoosh.wav\n[a] 2\nrect @r at=0,0 size=10x10 fill=#ffffff\n0.4 sound whoosh volume=0.6",
+        )
+        .unwrap();
+        assert_eq!(reel.sounds["whoosh"], "app/audio/whoosh.wav");
+        assert_eq!(
+            reel.shots[0].sounds,
+            vec![Cue {
+                line: 5,
+                at: 0.4,
+                name: "whoosh".into(),
+                volume: 0.6
+            }]
+        );
+    }
+
+    #[test]
+    fn an_image_may_be_drawn_through_a_shader_named_before_the_first_shot() {
+        let reel = Reel::parse(
+            "reel 100x100 30\nimage art app/art.jpg\nshader tube app/promo/tube.frag\n[a] 2\nimage @art art at=0,0 size=100x100 shader=tube",
+        )
+        .unwrap();
+        assert_eq!(reel.shaders["tube"], "app/promo/tube.frag");
+        assert!(matches!(
+            reel.shots[0].items[0].look,
+            Look::Image {
+                shader: Some(ref name),
+                ..
+            } if name == "tube"
+        ));
+    }
+
+    #[test]
+    fn a_shader_must_be_named_before_it_is_used_and_draws_square_corners() {
+        let head =
+            "reel 10x10 30\nimage art app/art.jpg\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n";
+        assert_eq!(
+            error(&format!("{head}image art at=0,0 size=8x8 shader=tube")),
+            "line 5: no shader called `tube`; name it with `shader tube PATH` before the first shot"
+        );
+        assert_eq!(
+            error("reel 10x10 30\n[a] 2\nshader tube app/tube.frag"),
+            "line 3: a shader is named before the first shot: `shader NAME PATH`"
+        );
+        let named = "reel 10x10 30\nimage art app/art.jpg\nshader tube app/tube.frag\n[a] 2\n";
+        assert_eq!(
+            error(&format!(
+                "{named}image art at=0,0 size=8x8 radius=8 shader=tube"
+            )),
+            "line 5: a shader draws the image square-cornered, so it takes no `radius`"
+        );
+    }
+
+    #[test]
+    fn a_cue_needs_a_sound_named_earlier_and_a_level_in_range() {
+        assert_eq!(
+            error("reel 10x10 30\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n0.1 sound nope"),
+            "line 4: no sound called `nope`; name it with a `sound nope PATH` line before the first shot"
+        );
+        assert_eq!(
+            error(
+                "reel 10x10 30\nsound bed app/bed.mp3\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n0.1 sound bed volume=9"
+            ),
+            "line 5: `volume=9`: 0 to 2"
+        );
+    }
+
+    #[test]
+    fn a_cue_after_its_shot_ends_is_refused() {
+        assert_eq!(
+            error(
+                "reel 10x10 30\nsound bed app/bed.mp3\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n2 sound bed"
+            ),
+            "line 5: at 2s, after shot `a` ends at 2s"
+        );
+    }
+
+    #[test]
+    fn an_action_can_carry_its_sound() {
+        let reel = Reel::parse(
+            "reel 10x10 30\nsound whoosh app/whoosh.wav\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n0.3 enter @r rise sound=whoosh volume=0.5",
+        )
+        .unwrap();
+        assert_eq!(
+            reel.shots[0].actions[0].sound,
+            Some(SoundCue {
+                name: "whoosh".into(),
+                volume: 0.5
+            })
+        );
+        assert_eq!(
+            error(
+                "reel 10x10 30\n[a] 2\nrect @r at=0,0 size=1x1 fill=#ffffff\n0.3 enter @r rise volume=0.5"
+            ),
+            "line 4: `volume=` goes with `sound=`"
+        );
     }
 }

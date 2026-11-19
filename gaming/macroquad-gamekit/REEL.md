@@ -111,9 +111,10 @@ the frame alone.
 
 The noise is a hash of the pixel and the frame's number, so a frame comes out the same every run.
 
-### Fonts, images and styles
+### Fonts, images, sounds and styles
 
-Fonts and images are declared before the first shot: `font NAME PATH`, `image NAME PATH`.
+Fonts, images, sounds and shaders are declared before the first shot: `font NAME PATH`,
+`image NAME PATH`, `sound NAME PATH`, `shader NAME PATH`.
 Images may be PNG or JPEG. macroquad's own decoder reads PNG only, so the kit turns on JPEG
 for the same `image` crate, natively.
 
@@ -135,12 +136,39 @@ style NAME FONT SIZE INK [left|centre|right] [top|middle] [em=INK] [shadow=INK] 
 - **Plates and borders.** A plate makes a tag, and a border in the style's ink makes a stamp.
   Their padding is measured from the ink, so "STEP 4" sits centred in its plate.
 
+### Shaders
+
+An image may be drawn through a fragment shader: declare it, then name it on the image.
+
+```text
+shader tube app/promo/tube.frag
+image art at=-120,0 size=1320x1350 shader=tube
+```
+
+The shader is written against the reel's standard pair of varyings and one uniform:
+
+| In the fragment shader | Is |
+|---|---|
+| `sampler2D Texture` | The picture. |
+| `varying vec2 uv` | The picture's **own** uv, 0..1 across the whole file — not across the box it is drawn in. A shader measured against the painting therefore holds wherever the frame crops it. |
+| `varying lowp vec4 color` | The item's tint, its alpha in `color.a`; `gl_FragColor = … * color` is how it fades. |
+| `uniform float Time` | Seconds from the reel's start. Never the wall clock, so a still at 6.4 s is the frame the video has at 6.4 s. |
+
+The image covers its box (as `fit=cover` does) and is drawn square-cornered, so `radius=` is
+refused beside `shader=`: say so rather than draw a corner the shader cannot round. A shader
+that fails to compile fails the render, naming its path — a reel with a still effect that nobody
+noticed is the thing to avoid. The source is `#version 100` GLSL, like the kit's own, so the same
+file draws natively and in a browser.
+
+`macroquad` composes the reel's model matrix above it, so the shader draws where the item was
+placed and moves with it.
+
 ### Items
 
 | Line | Places |
 |---|---|
 | `fill [@n] COLOUR` / `fill radial INNER OUTER` / `fill linear TOP … BOTTOM` | A full-frame colour or gradient |
-| `image [@n] IMAGE [fit=cover\|contain] [at=X,Y size=WxH] [radius=PX]` | A named image over the frame, or cropped into a box with rounded corners |
+| `image [@n] IMAGE [fit=cover\|contain] [at=X,Y size=WxH] [radius=PX] [shader=NAME]` | A named image over the frame, or cropped into a box with rounded corners — or drawn through a shader (see "Shaders") |
 | `rect [@n] at=X,Y size=WxH [fill=INK] [stroke=INK] [border=PX] [radius=PX]` | A rectangle: a full-frame banner, a border around a card |
 | `view [@n]` | The game over the whole frame |
 | `browser [@n] at=X,Y width=W [url="…" bar=STYLE] [chips="EVM ADA" chip=STYLE] [accent=INK]` | A desktop browser showing the game: a toolbar with the address and extension chips, over a page of the game's shape |
@@ -172,6 +200,7 @@ Any item takes three placement options:
 | `T show @n` / `T hide @n` | At once |
 | `T move @n SECONDS x= y= scale= rot= alpha= [ease=…] [yoyo=N]` | Moves by that much over the time; `yoyo` adds legs there and back |
 | `T pulse @n [SECONDS]` | Shows, swells from 0.4× to 1.5× and fades, then is gone: a tap |
+| `T sound NAME [volume=0.6]` | Starts a named sound at that moment; see "Sound" |
 | `T set @game LINE` | Hands the game a condition line, mid-shot |
 
 - **Visibility.** An item shows from its shot's start, unless its first coming-or-going action is
@@ -194,6 +223,30 @@ Any item takes three placement options:
 
   Entering eases with the preset's own curve; leaving always gathers speed.
 - **Eases.** Eases are the kit's `Ease` names, hyphenated: `sine-in-out`, `back-out`.
+
+### Sound
+
+A sound is declared before the first shot, then either cued at a time or hung on an action:
+
+```text
+sound bed app/audio/bed.mp3
+sound whoosh app/audio/whoosh.wav
+
+[title] 8
+0.4 sound whoosh volume=0.6          # a cue: nothing moves
+0.3 enter @title slam sound=whoosh   # an effect: starts when the action does
+```
+
+- **`sound=NAME` on an action** starts the sound when the action starts, so retiming the action
+  takes its sound with it. Every action but `set` takes one; `volume=` rides with it.
+- **A cue line** (`T sound NAME`) is for a sound with nothing to move: a bed, a room tone.
+- **Both are in shot time**, like an action: moving a shot moves its sounds with it.
+- **Every sound is a file**, so a bed is a cue at `0` with a file as long as the reel; a shorter
+  bed simply stops. Nothing loops.
+- **Levels add up** — the mix is not normalised — so a cue over a bed wants less than 1.
+- **It is mixed in the same encode** as the picture: no second pass and no mux, and the sound is
+  AAC in the `.mp4`.
+- **The preview is silent.** Sound is in the recorded file, not in the window.
 
 ## Running it
 
@@ -280,6 +333,5 @@ never show its text at all; the opener found that.
 
 ## Next
 
-1. **Sound.** An `audio FILE` line, muxed in the same encode, once there is music.
-2. **An `include` line,** if a second reel for the same game keeps copying the first's inks,
+1. **An `include` line,** if a second reel for the same game keeps copying the first's inks,
    fonts and styles. `carousel.reel` beside the infomercial copies about 30 lines.

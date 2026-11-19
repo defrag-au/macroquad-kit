@@ -35,7 +35,9 @@ pub fn failure(r: &Response) -> String {
     let text = r.text();
     let detail: String = text.trim().chars().take(160).collect();
     match (r.status, detail.is_empty()) {
-        (404, _) => "not found".to_string(),
+        // A 404 with a sentence is a server saying why (a wallet not linked yet, a code
+        // already used): the sentence is what the reader needs. Only a bare one is "not found".
+        (404, true) => "not found".to_string(),
         (status, true) => format!("the server answered {status}"),
         (status, false) => format!("the server answered {status}: {detail}"),
     }
@@ -150,6 +152,14 @@ mod tests {
             body: body.as_bytes().to_vec(),
         };
         assert_eq!(failure(&r(404, "")), "not found");
+        assert_eq!(
+            failure(&r(
+                404,
+                "That Cardano wallet isn't linked to a chamber ID yet."
+            )),
+            "the server answered 404: That Cardano wallet isn't linked to a chamber ID yet.",
+            "a 404 that says why keeps its sentence"
+        );
         assert_eq!(failure(&r(503, "")), "the server answered 503");
         assert_eq!(
             failure(&r(500, " durable object reset \n")),

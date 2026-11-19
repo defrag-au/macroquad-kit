@@ -22,7 +22,7 @@ use super::grade::Grader;
 use super::timeline::{Scene, moment, scene, time_of};
 use crate::app::{Game, Player};
 use crate::harness::{self, Args, plain_target, target_camera};
-use crate::video::VideoWriter;
+use crate::video::{Sound, VideoWriter};
 
 /// What a reel run writes.
 enum Output {
@@ -234,6 +234,15 @@ impl Canvas {
         }
     }
 
+    /// Fill every font atlas the reel's text will use, before the first frame: see
+    /// [`Painter::warm`]. It draws outside the frame, so nothing reaches the picture.
+    fn warm(&self, reel: &Reel) {
+        set_camera(&target_camera(self.size, Vec2::ZERO, &self.target));
+        clear_background(BLACK);
+        crate::text::ungated(|| harness::report::muted(|| self.painter.warm(reel)));
+        set_default_camera();
+    }
+
     /// Draw `now` with the game's frame in it, graded if its shot is: the finished frame.
     fn compose(
         &self,
@@ -304,6 +313,7 @@ pub(crate) async fn run<G: Game>(player: Player<G>, args: &Args) -> ! {
     };
     director.player.settle().await;
     let canvas = Canvas::new(&reel, painter);
+    canvas.warm(&reel);
     match output {
         Output::Preview => preview(reel, canvas, director, glyphs).await,
         _ if !glyphs.is_empty() => fail(glyphs.join("\n")),
@@ -314,6 +324,36 @@ pub(crate) async fn run<G: Game>(player: Player<G>, args: &Args) -> ! {
     }
 }
 
+/// Every cue in the reel, in reel time: a shot's cues start when its shot does, and a sound on an
+/// action starts when the action does.
+fn reel_sounds(reel: &Reel) -> Vec<Sound> {
+    let mut out = Vec::new();
+    let mut start = 0.0;
+    for shot in &reel.shots {
+        for action in &shot.actions {
+            if let Some(cue) = &action.sound {
+                push_sound(reel, &mut out, &cue.name, cue.volume, start + action.at);
+            }
+        }
+        for cue in &shot.sounds {
+            push_sound(reel, &mut out, &cue.name, cue.volume, start + cue.at);
+        }
+        start += shot.seconds;
+    }
+    out
+}
+
+/// One sound in reel time. The parser refuses a cue without a `sound` line, so the path is there.
+fn push_sound(reel: &Reel, out: &mut Vec<Sound>, name: &str, volume: f32, at: f32) {
+    if let Some(path) = reel.sounds.get(name) {
+        out.push(Sound {
+            path: path.clone(),
+            at,
+            volume,
+        });
+    }
+}
+
 async fn record<G: Game>(
     reel: &Reel,
     canvas: &Canvas,
@@ -321,12 +361,14 @@ async fn record<G: Game>(
     out: &str,
     args: &Args,
 ) -> ! {
+    let sounds = reel_sounds(reel);
     let mut writer = VideoWriter::open(
         out,
         reel.fps,
         reel.size.0 as u16,
         reel.size.1 as u16,
         args.quality,
+        &sounds,
     )
     .unwrap_or_else(|e| fail(format!("{out}: {e}")));
     let mut outside = Outside::default();
