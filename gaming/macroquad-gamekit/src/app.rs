@@ -914,6 +914,7 @@ fn record_frame(
                 image.width,
                 image.height,
                 quality,
+                &[],
             )?);
         }
         videos.get_mut(&index).expect("just opened").push(image)?;
