@@ -46,11 +46,6 @@ statig = "0.4.1"
 # consumer only changes the git URL, never a `use` path.
 arcade-admin-quad = { path = "gaming/arcade-admin-quad" }
 macroquad-app = { path = "ui/macroquad-app" }
-macroquad-apk = { path = "ui/macroquad-apk" }
-macroquad-bundle = { path = "ui/macroquad-bundle" }
-macroquad-cnft = { path = "ui/macroquad-cnft" }
-macroquad-gamekit = { path = "gaming/macroquad-gamekit" }
-macroquad-text = { path = "ui/macroquad-text" }
 macroquad-wallet-flow = { path = "ui/macroquad-wallet-flow" }
 macroquad-widgets = { path = "ui/macroquad-widgets" }
 
