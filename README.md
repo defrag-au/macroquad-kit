@@ -1,8 +1,8 @@
 # macroquad-kit
 
 The macroquad layer for defrag-au apps and games: text, widgets, the game-feel
-kit, the app shell, the web/APK bundlers, the storybook, and the Cardano edges
-that draw with them.
+kit, the app shell, the web/APK bundlers, the storybook, the container-job
+board, and the Cardano edges that draw with them.
 
 The kit **consumes** `shared-crates` for the pure crates it needs
 (`ui-theme`, `chains`, `perf-probe`, `cnft-holdings`, `image-core`,
@@ -34,6 +34,7 @@ Each crate reached for cold has an index beside it:
 | [`ui/macroquad-storybook/README.md`](ui/macroquad-storybook/README.md) | the storybook's own stories, capture flags and goldens (not an app's) |
 | [`ui/macroquad-bundle/README.md`](ui/macroquad-bundle/README.md) | the web bundle: flags, steps, refusals |
 | [`ui/macroquad-apk/README.md`](ui/macroquad-apk/README.md) | the APK: app shape, flags, the plan, the SDK, refusals |
+| [`ui/jobs-board/src/main.rs`](ui/jobs-board/src/main.rs) | the container-flow job board: `--root`, the live `status.json`, the two actions a viewer has, and `--tasks`/`--runner` to start one |
 
 The three catalogues are generated from each module's own `//!` header, so a
 module without one fails its crate's test. The storybook and the two packaging

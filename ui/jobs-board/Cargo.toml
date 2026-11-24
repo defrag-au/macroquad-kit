@@ -1,0 +1,21 @@
+[package]
+name = "jobs-board"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+# The container-flow board: one card per job, a sheet with its verify plan and
+# facts, and the actions a host offers. The library is the renderer; the binary
+# feeds it the directories the runner wrote, and the storybook feeds it fixtures.
+
+[dependencies]
+jobs = { path = "../jobs" }
+macroquad = "0.4"
+macroquad-widgets = { path = "../macroquad-widgets" }
+# `with_clip` knows the camera, the DPI and the active render target, and tells
+# the capture report what was visible; the binary also takes its window and
+# capture flags from `harness`.
+macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }

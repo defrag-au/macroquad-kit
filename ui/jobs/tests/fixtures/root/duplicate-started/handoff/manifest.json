@@ -1,0 +1,42 @@
+{
+  "task": "chromium-surfaces-duplicate-started",
+  "repo": "/checkouts/chromium-surfaces",
+  "base": "7045e3721ce4d05b93497d8eca0087bf2388089a",
+  "image": {
+    "reference": "playbook-eval/rig-eval:local",
+    "digest": "sha256:ba4eb717a58edace149255bfc033892339fad00811d7861028d18c9b953f0286"
+  },
+  "verify_image": {
+    "reference": "playbook-eval/rust-verify:1.99",
+    "digest": "sha256:b700827c571dd4a977c02a6beebf52f1c622030064ab8aee1389c12b93f7f1a3"
+  },
+  "model": "deepseek/deepseek-flash",
+  "session": null,
+  "agent_exit": 0,
+  "verify": [
+    {
+      "index": 1,
+      "status": "ok",
+      "command": "cargo test --locked -p surface -p surface-input"
+    },
+    {
+      "index": 2,
+      "status": "ok",
+      "command": "cargo fmt --all -- --check"
+    }
+  ],
+  "verify_passed": true,
+  "patch": {
+    "path": "result.patch",
+    "bytes": 1765,
+    "applies_on_host": true
+  },
+  "effects": "effects.jsonl",
+  "usage": {
+    "model_calls": 3,
+    "input_tokens": 12400,
+    "output_tokens": 800,
+    "cached_input_tokens": 9000,
+    "cost_usd": 0.0022
+  }
+}

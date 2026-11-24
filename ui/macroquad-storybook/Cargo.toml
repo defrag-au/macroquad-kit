@@ -35,6 +35,10 @@ macroquad = "0.4"
 # storybook is where a widget gets built and reviewed before an app consumes it,
 # so it enables every feature the crate has.
 macroquad-widgets = { path = "../macroquad-widgets", features = ["chain", "trading"] }
+# The container-flow job artefacts and their board: the storybook is where
+# the board's design is reviewed, and its story feeds the board fixtures.
+jobs = { path = "../jobs" }
+jobs-board = { path = "../jobs-board" }
 # The game-feel kit's stories ("gamekit" in the sidebar).
 macroquad-gamekit = { path = "../../gaming/macroquad-gamekit" }
 # The operator panel a game shows itself through; its story is here for the same

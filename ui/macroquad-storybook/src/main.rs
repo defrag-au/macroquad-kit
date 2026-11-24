@@ -14,6 +14,7 @@ mod app_stories;
 mod cart_stories;
 mod chain_fixture;
 mod gamekit_stories;
+mod jobs_stories;
 mod page_stories;
 mod route_stories;
 mod trading_stories;
@@ -23,6 +24,7 @@ use app_stories::{AppStory, AppView};
 use cart_stories::{CartStory, CartView};
 use chain_fixture::{ChainSim, Scenario};
 use gamekit_stories::{KitStory, KitView};
+use jobs_stories::{JobsStory, JobsView};
 use macroquad::prelude::*;
 use macroquad_gamekit::{harness, wallet_modal::ChainFamily};
 use macroquad_widgets::{
@@ -165,6 +167,8 @@ enum Body {
     Cart(Box<CartStory>),
     /// A part of `macroquad-app`'s shell.
     App(Box<AppStory>),
+    /// The container-flow job board.
+    Jobs(Box<JobsStory>),
     /// A page piece: the message, the surface, wrapped prose.
     Page(Box<PageStory>),
     /// The shape library's own specimen sheet.
@@ -224,6 +228,7 @@ enum Kind {
     WalletModal,
     Cart,
     App,
+    Jobs,
     Page,
     Shapes,
 }
@@ -376,6 +381,7 @@ impl Story {
             Body::WalletModal(_) => Kind::WalletModal,
             Body::Cart(_) => Kind::Cart,
             Body::App(_) => Kind::App,
+            Body::Jobs(_) => Kind::Jobs,
             Body::Page(_) => Kind::Page,
             Body::Shapes => Kind::Shapes,
         }
@@ -408,6 +414,10 @@ impl Story {
             Kind::Admin => match &self.body {
                 Body::Admin(story) => vec2(if story.wide { 720.0 } else { 360.0 }, story.height),
                 _ => vec2(360.0, 430.0),
+            },
+            Kind::Jobs => match &self.body {
+                Body::Jobs(story) => story.canvas(),
+                _ => vec2(420.0, 760.0),
             },
             // Not in the golden corpus yet; a phone page is the safe default.
             Kind::Chain
@@ -457,6 +467,14 @@ impl Story {
             category: "app shell",
             name,
             body: Body::App(Box::new(AppStory::new(view))),
+        }
+    }
+
+    fn jobs(name: &'static str, view: JobsView) -> Self {
+        Self {
+            category: "jobs",
+            name,
+            body: Body::Jobs(Box::new(JobsStory::new(view))),
         }
     }
 
@@ -1143,6 +1161,15 @@ fn stories(sample_icon: Option<Texture2D>) -> Vec<Story> {
         Story::app("app · list", AppView::List),
         Story::app("shell · phone", AppView::ShellPhone),
         Story::app("shell · desk", AppView::ShellDesk),
+        // Jobs: the container-flow board. `live` first, as every interactive
+        // story is.
+        Story::jobs("live", JobsView::Live),
+        Story::jobs("board", JobsView::Board),
+        Story::jobs("board · desk", JobsView::BoardDesk),
+        Story::jobs("running · sheet", JobsView::SheetRunning),
+        Story::jobs("done · sheet", JobsView::SheetDone),
+        Story::jobs("failed · sheet", JobsView::SheetFailed),
+        Story::jobs("launcher · sheet", JobsView::LauncherSheet),
         // "page · …" so `--story` finds these rather than another category's.
         Story::page("page · message", PageView::Message),
         Story::page("page · message with action", PageView::MessageAction),
@@ -1621,6 +1648,7 @@ impl Storybook {
                 | Kind::Trading
                 | Kind::WalletModal
                 | Kind::Cart
+                | Kind::Jobs
                 | Kind::App => format!(
                     "arrows / click to switch  ·  t = theme: {}  ·  p pause · . step · s slow  ·  {}",
                     p.theme.name,
@@ -1771,6 +1799,13 @@ impl Storybook {
                 let (dt, g) = (self.dt, self.gesture);
                 if let Body::Cart(story) = &mut self.stories[sel].body {
                     let area = Rect::new(x0, y, avail_w, (avail_h - 24.0).max(0.0));
+                    story.draw(p, area, &g, dt);
+                }
+            }
+            Kind::Jobs => {
+                let (dt, g) = (self.dt, self.gesture);
+                if let Body::Jobs(story) = &mut self.stories[sel].body {
+                    let area = Rect::new(x0, y, avail_w, avail_h);
                     story.draw(p, area, &g, dt);
                 }
             }

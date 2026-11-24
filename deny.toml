@@ -16,7 +16,14 @@ version = 2
 # than a vulnerability. Denied because the bump is usually a one-liner.
 yanked = "deny"
 
-# The audit found five, all with no patched version available from here. Each
+# Report an unmaintained crate wherever it sits in the graph. cargo-deny 0.22
+# defaults this to `workspace`, which reports only a crate that is a workspace
+# member's direct dependency; four of the ignores below name transitive crates,
+# so under that default their advisories are never emitted and each ignore
+# fails the run as `advisory-not-detected`.
+unmaintained = "all"
+
+# The audit found six, all with no patched version available from here. Each
 # entry names the path and who would have to move. Revisit 2027-05-17.
 ignore = [
   # quad-net's WebSocket transport -> qws 0.7.9 -> mio 0.6 -> net2. qws has not
@@ -27,6 +34,12 @@ ignore = [
   # operator's relay, not input from a peer, and nothing here compares host
   # names as a privilege check.
   "RUSTSEC-2024-0421",
+  # The same qws -> url 1.7.2 path, now `Url::origin()` recursing on nested
+  # `blob:` URLs. There is no fixed 1.x release. The 2.x copy this graph also
+  # carried (through ureq) is 2.5.9, so this is the operator's relay URL again
+  # and not a peer's input. Scoped with `allow = ["qws@0.7.9"]` once the
+  # devshell's cargo-deny reaches 0.21; 0.20.2 rejects the key.
+  "RUSTSEC-2026-0592",
   # simba's proc-macro path; the crate is archived and there is no upgrade.
   "RUSTSEC-2024-0436",
   # statig_macro, through statig 0.4.
