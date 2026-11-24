@@ -7,6 +7,8 @@ members = [
     "gaming/sprite-view",
     "graphics/scene-pane",
     "ui/image-miniquad",
+    "ui/jobs",
+    "ui/jobs-board",
     "ui/macroquad-apk",
     "ui/macroquad-app",
     "ui/macroquad-bundle",

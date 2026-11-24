@@ -86,6 +86,7 @@ pub mod sprite;
 pub mod sprite_file;
 pub mod starfield;
 pub mod startup;
+pub mod steer;
 pub mod step;
 pub mod tech;
 pub mod text;
@@ -134,6 +135,7 @@ pub use sprite::{Pose, Sprite, draw_order, topmost};
 pub use sprite_file::{SpriteFile, SpriteFileError};
 pub use starfield::{Star, Starfield};
 pub use startup::{Finished, Phase, Startup};
+pub use steer::{Steer, Steering};
 pub use step::{FixedStep, Tick};
 pub use tech::{TechHit, TechLayout, TechPanel, TechStyle, TechTile, TileState};
 pub use text::{

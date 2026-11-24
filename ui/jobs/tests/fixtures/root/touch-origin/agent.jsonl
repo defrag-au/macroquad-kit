@@ -1,0 +1,2 @@
+{"type":"usage","purpose":"turn","usage":{"input_tokens":4200,"output_tokens":260,"cached_input_tokens":3000,"cost":{"total":0.0007}}}
+{"type":"usage","purpose":"turn","usage":{"input_tokens":3800,"output_tokens":190,"cached_input_tokens":2500,"cost":{"total":0.0006}}}

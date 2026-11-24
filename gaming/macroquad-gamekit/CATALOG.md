@@ -10,7 +10,7 @@ across frames and takes time as an argument. Stories are in `macroquad-storybook
 under "gamekit". MACROQUAD only: no wasm-bindgen, see the shared-crates CLAUDE.md on
 runtime pairs.
 
-42 modules.
+43 modules.
 
 | module | what it is |
 |---|---|
@@ -45,6 +45,7 @@ runtime pairs.
 | `sprite_file` | `SpriteFile` — a sprite as a text file: its rows, palette, gait, scale and body motion in one place, so a game embeds it and `sprite-view` reviews it, with no game built |
 | `starfield` | `Starfield` — a seeded sky of stars in depth layers that drift and twinkle, drawn behind a space scene, a title or a whole window |
 | `startup` | `Startup` — the phases a screen goes through between opening and drawing whole: settling while the window finds its size, warming glyphs behind a [`Preloader`], then live |
+| `steer` | `Steer` — the mouse, a trackpad and fingers read as a camera's intents: carry the ground under the pointer, zoom toward it, orbit; as data, so any camera (shared-crates' `view-camera`, a globe) takes them |
 | `step` | `FixedStep` — a simulation that steps at a fixed rate, whatever the frame rate |
 | `tech` | `TechPanel` — a workbench's panel for a tech tree, a tier at a time: tiles for the tier's nodes (built, ready, short or locked, and a server goal's fill), arrows between tiers, and a line about the picked one |
 | `text` | `RichText` — wrapped text in several styles with inline icon boxes, laid out once and drawn crisp at any pixel scale |
