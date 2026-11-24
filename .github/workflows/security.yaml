@@ -26,10 +26,12 @@ jobs:
       # resolving from somewhere `deny.toml` does not list; `bans` is strict on
       # workspace-dependency consistency and advisory elsewhere.
       #
-      # This action ships cargo-deny 0.21.0, ahead of the devshell's 0.20.2, so
-      # every lint default this repo depends on is written down in `deny.toml`
-      # rather than left implicit. `--all-features` is the action's default too,
-      # stated here so the audited graph is not inherited by accident.
+      # The action ships a cargo-deny ahead of the devshell's 0.20.2, so every
+      # lint default this repo depends on is written down in `deny.toml` rather
+      # than left implicit — 0.22.0 changed `advisories.unmaintained` to
+      # `workspace`, and `unmaintained = "all"` there is that default made
+      # explicit. `--all-features` is the action's default too, stated here so
+      # the audited graph is not inherited by accident.
       - name: cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
